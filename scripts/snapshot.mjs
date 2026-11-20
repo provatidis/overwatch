@@ -240,6 +240,14 @@ async function sendAlerts(prev, next) {
   return sent;
 }
 
+// Which tokens DefiLlama files under the treasury's "own tokens" (OVER, or the old THALES).
+function ownSymbols(treJ) {
+  const own = treJ.chainTvls && treJ.chainTvls.OwnTokens;
+  const rows = own && Array.isArray(own.tokensInUsd) ? own.tokensInUsd : [];
+  const last = rows.length ? rows[rows.length - 1].tokens || {} : {};
+  return Object.keys(last).filter(k => Number(last[k]) > 0);
+}
+
 // ---------- Main ----------
 async function readJSON(file) {
   try { return JSON.parse(await readFile(file, 'utf8')); } catch { return null; }
@@ -258,6 +266,7 @@ async function main() {
     step('liquidity', liquiditySnapshot),
     step('governance', governanceSnapshot)
   ]);
+  const poolsTvl = await getJSON('https://api.llama.fi/tvl/overtime').then(Number).catch(() => null);
 
   const rev = revJ ? dailySeries(revJ) : null;
   const buy = buyJ ? dailySeries(buyJ) : null;
@@ -279,6 +288,8 @@ async function main() {
     buybacks: buy ? buy.map(p => [p.t, Math.round(p.v)]) : keep(null, 'buybacks'),
     treasury: treasury ? treasuryToRows(treasury) : keep(null, 'treasury'),
     treasuryOwnUsd: ownUsd != null ? ownUsd : keep(null, 'treasuryOwnUsd'),
+    treasuryOwnSymbols: treJ ? ownSymbols(treJ) : keep(null, 'treasuryOwnSymbols'),
+    poolsTvl: Number.isFinite(poolsTvl) ? Math.round(poolsTvl) : keep(null, 'poolsTvl'),
     supply: keep(supply, 'supply'),
     liquidity: keep(liquidity, 'liquidity'),
     governance: keep(governance, 'governance'),

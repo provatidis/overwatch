@@ -352,9 +352,13 @@ function renderSummary() {
   if (last) {
     const extras = [];
     if (last.major > 0) extras.push(`${money(last.major)} in ETH and BTC`);
-    if (ok(last.own) && last.own > 0) extras.push(`${money(last.own)} in its own OVER`);
+    if (ok(last.own) && last.own > 0) {
+      const syms = (state.data && state.data.treasuryOwnSymbols) || [];
+      extras.push(syms.length && !syms.includes('OVER') ? `${money(last.own)} that DefiLlama lists as old ${syms.join(', ')} tokens` : `${money(last.own)} in its own tokens`);
+    }
     if (last.other > 1000) extras.push(`${money(last.other)} in other tokens`);
-    if (extras.length) $('treasury-sub').textContent = `Stablecoins held by the treasury across chains. Since the treasury became the only liquidity provider, this is the house’s bankroll, so losses show up here first. It also holds ${extras.join(', ')}.`;
+    const pools = state.data && state.data.poolsTvl > 0 ? ` The betting pools it funds hold another ${money(state.data.poolsTvl)}.` : '';
+    $('treasury-sub').textContent = `Stablecoins in the treasury wallets across chains. Since the treasury became the only liquidity provider, this is the house’s reserve, so losses show up here first.${extras.length ? ` It also holds ${extras.join(', ')}.` : ''}${pools}`;
   }
 }
 
@@ -408,16 +412,15 @@ function renderSupply() {
     empty($('supply-chart'), `History starts ${hist.length ? fmtDate(hist[0].t) : 'with the first snapshot'} and adds a reading every day. The chart appears from the second day.`, 'history-note');
   }
 
-  // DefiLlama's "own tokens" figure versus what the chain data allows.
+  // DefiLlama's "own tokens" figure: say what it actually is.
   const eth = (sup.chains || {}).ethereum;
   const notes = [];
-  if (ok(state.data.treasuryOwnUsd) && ok(price) && price > 0 && eth) {
-    const implied = state.data.treasuryOwnUsd / price;
-    const outside = eth.total - eth.locked - eth.dead;
-    if (implied > outside * 1.05) {
-      notes.push(`DefiLlama values the treasury’s own OVER at ${money(state.data.treasuryOwnUsd)}, about ${tokens(implied)} tokens. Only ${tokens(outside)} OVER on Ethereum sits outside the bridge pool and the burn address, so DefiLlama’s figure must include the ${tokens(eth.locked)} locked in Chainlink’s bridge pool. Those back the tokens circulating on Optimism, Arbitrum and Base and don’t belong to the treasury.`);
-    } else {
-      notes.push(`DefiLlama values the treasury’s own OVER at ${money(state.data.treasuryOwnUsd)}, about ${tokens(implied)} tokens. The treasury figure above only counts the wallets listed in lib/config.js.`);
+  const ownUsd = state.data.treasuryOwnUsd, syms = state.data.treasuryOwnSymbols || [];
+  if (ok(ownUsd) && ownUsd > 0) {
+    if (syms.length && !syms.includes('OVER')) {
+      notes.push(`DefiLlama also lists ${money(ownUsd)} of “own tokens” in the treasury, but it files them as ${syms.join(', ')}, the token OVER replaced, valued at OVER’s price. They aren’t OVER, so they’re left out of the treasury figure here.`);
+    } else if (ok(price) && price > 0 && eth && ownUsd / price > (eth.total - eth.locked - eth.dead) * 1.05) {
+      notes.push(`DefiLlama values the treasury’s own OVER at ${money(ownUsd)}, more than all the OVER on Ethereum outside the bridge pool and burn address, so it must include the ${tokens(eth.locked)} locked in Chainlink’s bridge pool. Those back the tokens on the other chains and don’t belong to the treasury.`);
     }
   }
   $('supply-note').textContent = notes.join(' ');
