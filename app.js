@@ -2,8 +2,8 @@
 import { ANNOTATIONS, CHAIN_NAMES, EXPLORERS, OVER, DEAD, METHOD_CHANGE } from './lib/config.js';
 import { money, tokens, axisMoney, axisTokens, pct, fmtDate, shortMonth, ok } from './lib/format.js';
 import {
-  DAY, dailySeries, fromPairs, parseTreasury, treasuryFromRows, bankrollFromRows, completeDays, aggregate, periodStart,
-  periodNext, periodLabel, computeStats, computeChecks, voterGroup, GRADE
+  DAY, dailySeries, fromPairs, parseTreasury, treasuryFromRows, readingsFromHistory, completeDays, aggregate, periodStart,
+  periodNext, periodLabel, computeStats, computeChecks, computeFlows, FLOWS_MIN_DAYS, voterGroup, GRADE
 } from './lib/metrics.js';
 
 // ---------- Theme (same storage key as provatidis.com) ----------
@@ -334,15 +334,16 @@ function check(parent, c) {
 }
 
 // ---------- State ----------
-const state = { range: 365, mode: 'month', data: null, now: null, rev: null, buy: null, treasury: null, bankroll: null, price: null, history: [], loaded: false };
+const state = { range: 365, mode: 'month', data: null, now: null, rev: null, buy: null, treasury: null, price: null, history: [], loaded: false };
 
-const SOURCE_NAMES = { revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', bankroll: 'stablecoins', pools: 'betting pools', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
+const SOURCE_NAMES = { revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
 const staleSources = () => Object.entries((state.data && state.data.sources) || {}).filter(([, v]) => !v.ok);
 const sourceDate = name => { const v = state.data && state.data.sources && state.data.sources[name]; return v && v.asOf ? fmtDate(v.asOf) : 'an earlier day'; };
 
 function renderSummary() {
-  const { rev, buy, bankroll, price } = state;
-  const s = computeStats({ rev, buy, bankroll });
+  const { rev, buy, price } = state;
+  const readings = readingsFromHistory(state.history);
+  const s = computeStats({ rev, buy, treasury: state.treasury, readings });
   const end = s.lastT != null ? fmtDate(s.lastT) : null;
 
   // The headline: earnings and buybacks for the same dated period.
@@ -374,7 +375,10 @@ function renderSummary() {
   tile(tiles, 'Buyback yield', pct(yld), { note: 'Last 90 days of buybacks, annualized, divided by market cap.' });
   tile(tiles, 'OVER price', price && ok(price.usd) ? `$${price.usd.toFixed(4)}` : '—', { delta: price ? price.change24h : null, deltaLabel: '24h', note: price && price.stale ? 'From the last snapshot.' : null });
   tile(tiles, 'Market cap', money(mcap), { note: 'Same as fully diluted value: no tokens left to unlock.' });
-  tile(tiles, 'House stablecoins', money(s.bankrollNow), { delta: s.change30, deltaLabel: '30 days', note: 'Treasury wallets and betting pools.' });
+  tile(tiles, s.bankrollMode === 'full' ? 'House stablecoins' : 'Treasury stablecoins', money(s.bankrollNow), {
+    delta: s.change30, deltaLabel: '30 days',
+    note: s.bankrollMode === 'full' ? 'Treasury wallets plus idle capital in the betting pools.' : (s.latestReading ? `Plus ${money(s.latestReading.pools)} idle in the betting pools.` : 'Treasury wallets.')
+  });
 
   const list = $('checks');
   list.replaceChildren();
@@ -395,11 +399,38 @@ function renderSummary() {
     }
   }
   const pools = state.data && state.data.pools;
-  const parts = ['Stablecoins in the treasury wallets, plus the betting pools from 21 Jul 2026, when the treasury became their only liquidity provider. If the house is losing, it shows up here first.'];
-  if (s.bankrollLast && s.bankrollLast.pools != null) parts.push(`Today ${money(s.bankrollLast.treasury)} sits in the treasury and ${money(s.bankrollLast.pools)} in the pools.`);
-  if (pools && pools.total > pools.stable) parts.push(`The pools also hold ${money(pools.total - pools.stable)} in other tokens.`);
+  const parts = ['Stablecoins in the treasury wallets, from DefiLlama. Since OIP-265 the treasury is also the only liquidity provider in the betting pools.'];
+  if (pools && pools.chains) parts.push(`Those hold another ${money(pools.total)} of idle USDC today, read onchain (${Object.entries(pools.chains).map(([c, v]) => `${chainName(c)} ${money(v.usdc)}`).join(', ')}); money already riding on open bets isn’t counted.`);
   if (extras.length) parts.push(`The treasury also holds ${extras.join(', ')}.`);
   $('treasury-sub').textContent = parts.join(' ');
+
+  renderFlows(readings);
+}
+
+// Where the money went: what the house made, minus buybacks, against what happened to its stablecoins.
+function renderFlows(readings) {
+  const f = computeFlows(readings, state.rev, state.buy);
+  const box = $('flows');
+  box.replaceChildren();
+  if (!f.ready) {
+    const start = f.since ? fmtDate(f.since) : 'the first onchain pool reading';
+    const ready = f.since ? fmtDate(f.since + FLOWS_MIN_DAYS * DAY) : null;
+    el('p', 'flows-wait', `This needs the betting pools’ capital on two dates. Readings started ${start}${ready ? `, and the first ${FLOWS_MIN_DAYS}-day view appears on ${ready}` : ''}. It then covers the latest 30 days.`, box);
+    return;
+  }
+  const s = el('p', 'flows-line', null, box);
+  const strong = t => el('strong', null, t, s);
+  s.append(`From ${fmtDate(f.from)} to ${fmtDate(f.to)}, the house ${f.result >= 0 ? 'made' : 'lost'} `); strong(money(Math.abs(f.result)));
+  s.append(' and spent '); strong(money(f.buys)); s.append(' on buybacks, so its stablecoins should have moved by ');
+  strong(money(f.expected)); s.append('. They moved by '); strong(money(f.change));
+  s.append(`, leaving ${money(f.other)} in other flows.`);
+  table(el('div', null, null, box), ['', `${f.days} days`], [
+    ['House result', money(f.result)],
+    ['Bought back', money(-f.buys)],
+    ['Expected change', money(f.expected)],
+    ['Actual change in treasury + pools', `${money(f.change)} (treasury ${money(f.treasuryChange)}, pools ${money(f.poolsChange)})`],
+    ['Other flows', money(f.other)]
+  ]);
 }
 
 const cutoff = () => state.range === 'all' ? -Infinity : Date.now() / 1000 - state.range * DAY;
@@ -407,21 +438,12 @@ const cutoff = () => state.range === 'all' ? -Infinity : Date.now() / 1000 - sta
 function renderTrends() {
   tip.hide();
   const from = cutoff();
-  if (state.bankroll) {
-    const pts = state.bankroll.filter(p => p.t >= from);
-    lineChart($('treasury-chart'), pts, {
-      aria: `The house’s stablecoins over time, now ${money(pts.length ? pts[pts.length - 1].v : null)}`,
-      name: 'Stablecoins',
-      tipRows: p => [
-        { key: 's1', value: money(p.v), name: 'Stablecoins' },
-        { value: money(p.treasury), name: 'in the treasury' },
-        ...(p.pools != null ? [{ value: money(p.pools), name: 'in the betting pools' }] : [])
-      ]
-    });
+  if (state.treasury) {
+    const pts = state.treasury.filter(p => p.t >= from).map(p => ({ t: p.t, v: p.stable }));
+    lineChart($('treasury-chart'), pts, { aria: `Treasury stablecoins over time, now ${money(pts.length ? pts[pts.length - 1].v : null)}`, name: 'Treasury stablecoins' });
     const monthly = new Map();
     pts.forEach(p => monthly.set(periodStart(p.t, 'month'), p));
-    table($('treasury-table'), ['Month (last reading)', 'Treasury', 'Betting pools', 'Total'],
-      [...monthly.values()].reverse().map(p => [fmtDate(p.t), money(p.treasury), p.pools != null ? money(p.pools) : '—', money(p.v)]));
+    table($('treasury-table'), ['Month (last reading)', 'Treasury stablecoins'], [...monthly.values()].reverse().map(p => [fmtDate(p.t), money(p.v)]));
   } else {
     empty($('treasury-chart'), 'Treasury data didn’t load.');
   }
@@ -629,8 +651,6 @@ async function loadLive() {
   if (tre.status === 'fulfilled') {
     const t = parseTreasury(tre.value);
     state.treasury = t.length ? t : null;
-    // Without the snapshot there's no pool data, so the bankroll is the treasury alone.
-    state.bankroll = state.treasury ? state.treasury.map(r => ({ t: r.t, v: r.stable, treasury: r.stable, pools: null })) : null;
   }
 }
 
@@ -654,8 +674,6 @@ async function load() {
     state.rev = d.revenue ? completeDays(fromPairs(d.revenue), d.generatedAt) : null;
     state.buy = d.buybacks ? completeDays(fromPairs(d.buybacks), d.generatedAt) : null;
     state.treasury = d.treasury ? treasuryFromRows(d.treasury) : null;
-    state.bankroll = d.bankroll ? bankrollFromRows(d.bankroll)
-      : state.treasury ? state.treasury.map(r => ({ t: r.t, v: r.stable, treasury: r.stable, pools: null })) : null;
     if (state.rev && state.rev.length) notes.push(`Figures run through ${fmtDate(state.rev[state.rev.length - 1].t)}, the last full day.`);
     notes.push(`Snapshot taken ${new Date(d.generatedAt * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC.`);
     const stale = staleSources();

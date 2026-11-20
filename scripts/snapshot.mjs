@@ -9,7 +9,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { OVER, DEAD, LOCKED_NAME, HOLDER_VALUE } from '../lib/config.js';
-import { dailySeries, parseTreasury, treasuryToRows, bankrollRows, bankrollFromRows, completeDays, computeStats, computeChecks, voterGroup, GRADE, RANK } from '../lib/metrics.js';
+import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
 import { money, tokens, fmtDate } from '../lib/format.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,6 +55,18 @@ async function getJSON(url, opts = {}, tries = 3) {
 async function step(name, fn) {
   try { return await fn(); }
   catch (e) { errors.push(`${name}: ${e.message}`); console.error(`[${name}]`, e); return null; }
+}
+
+// A reply can succeed and still be wrong: empty, cut short, or stuck on an old day. Anything that
+// looks like that is treated as a failed read, so the last good copy is kept instead.
+function checkSeries(name, rows, prevRows, now) {
+  if (!Array.isArray(rows) || rows.length < 30) throw new Error(`only ${rows ? rows.length : 0} days returned`);
+  if (Array.isArray(prevRows) && prevRows.length && rows.length < prevRows.length * 0.95) {
+    throw new Error(`${rows.length} days returned, down from ${prevRows.length}`);
+  }
+  const lastT = rows[rows.length - 1][0] ?? rows[rows.length - 1].t;
+  if (now - lastT > 3 * DAY) throw new Error(`newest day is ${fmtDate(lastT)}`);
+  return rows;
 }
 
 // ---------- Onchain reads ----------
@@ -133,6 +145,22 @@ async function supplySnapshot(price) {
   };
 }
 
+// Idle USDC in each chain's sportsbook liquidity pool: the current round's pool contract.
+async function poolSnapshot() {
+  const out = { chains: {}, total: 0 };
+  for (const [chain, cfg] of Object.entries(OVER.bettingPools)) {
+    const round = await ethCall(chain, cfg.pool, '0x146ca531');
+    const roundPool = '0x' + (await ethCall(chain, cfg.pool, '0x4651f080' + round.toString(16).padStart(64, '0'))).toString(16).padStart(40, '0');
+    if (/^0x0+$/.test(roundPool)) throw new Error(`${chain}: no pool contract for round ${round}`);
+    const usdc = Number(await ethCall(chain, cfg.usdc, '0x70a08231' + roundPool.slice(2).padStart(64, '0'))) / 1e6;
+    out.chains[chain] = { round: Number(round), roundPool, usdc: Math.round(usdc) };
+    out.total += usdc;
+  }
+  if (!(out.total > 0) || out.total > 50e6) throw new Error(`pool total ${money(out.total)} looks wrong`);
+  out.total = Math.round(out.total);
+  return out;
+}
+
 // ---------- Market data ----------
 async function liquiditySnapshot() {
   const addrs = Object.values(OVER.tokens);
@@ -168,6 +196,7 @@ async function liquiditySnapshot() {
     });
   }
   pools.sort((a, b) => b.liquidityUsd - a.liquidityUsd);
+  if (!pools.length || !(pools[0].liquidityUsd > 0)) throw new Error('no OVER pools with liquidity');
   return {
     totalUsd: pools.reduce((s, p) => s + p.liquidityUsd, 0),
     volume24h: pools.reduce((s, p) => s + p.volume24h, 0),
@@ -176,15 +205,16 @@ async function liquiditySnapshot() {
 }
 
 async function governanceSnapshot() {
-  const query = `query { proposals(first: 10, skip: 0, where: { space_in: ["${OVER.snapshotSpace}"] }, orderBy: "created", orderDirection: desc) { id title start end state choices scores scores_total votes symbol quorum link strategies { name } } }`;
+  const query = `query { proposals(first: 10, skip: 0, where: { space_in: ["${OVER.snapshotSpace}"] }, orderBy: "created", orderDirection: desc) { id title created start end state choices scores scores_total votes symbol quorum link strategies { name } } }`;
   const j = await getJSON('https://hub.snapshot.org/graphql', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query })
   });
   if (j.errors) throw new Error(j.errors.map(e => e.message).join('; '));
+  if (!(j.data && Array.isArray(j.data.proposals) && j.data.proposals.length)) throw new Error('no proposals returned');
   return {
     space: OVER.snapshotSpace,
     proposals: ((j.data && j.data.proposals) || []).map(p => ({
-      id: p.id, title: p.title, state: p.state, start: p.start, end: p.end,
+      id: p.id, title: p.title, state: p.state, created: p.created, start: p.start, end: p.end,
       link: p.link || `https://snapshot.box/#/s:${OVER.snapshotSpace}/proposal/${p.id}`,
       choices: p.choices, scores: p.scores, total: p.scores_total,
       votes: typeof p.votes === 'number' ? p.votes : null,
@@ -199,7 +229,7 @@ async function governanceSnapshot() {
 async function priceSnapshot() {
   const j = await getJSON('https://api.coingecko.com/api/v3/simple/price?ids=overtime&vs_currencies=usd&include_market_cap=true&include_24hr_change=true');
   const o = j && j.overtime;
-  if (!o || typeof o.usd !== 'number') throw new Error('no CoinGecko price');
+  if (!o || !(o.usd > 0)) throw new Error('no CoinGecko price');
   return { usd: o.usd, mcap: o.usd_market_cap || null, change24h: typeof o.usd_24h_change === 'number' ? o.usd_24h_change / 100 : null };
 }
 
@@ -245,9 +275,13 @@ async function sendAlerts(prev, next) {
   }
 
   // New votes, only when both today's and the previous governance reads are fresh.
-  if (prev.governance && next.governance && next.sources.governance.ok) {
+  // New votes: only proposals created after the last good governance read, so a gap or an odd
+  // reply can never make old proposals look new.
+  const since = prev.sources && prev.sources.governance && prev.sources.governance.asOf;
+  if (prev.governance && next.governance && next.sources.governance.ok && since) {
     const known = new Set(prev.governance.proposals.map(p => p.id));
-    for (const p of next.governance.proposals.filter(p => !known.has(p.id)).reverse()) {
+    const fresh = next.governance.proposals.filter(p => !known.has(p.id) && p.created > since - DAY);
+    for (const p of fresh.reverse()) {
       const when = p.end ? ` Voting closes ${new Date(p.end * 1000).toUTCString().replace(/:\d\d GMT/, ' UTC')}.` : '';
       const who = ` Voters: ${voterGroup(p).label}.`;
       const tag = p.holderValue ? ' Touches buybacks, fees or the treasury.' : '';
@@ -277,14 +311,20 @@ async function main() {
   const history = (await readJSON(path.join(OUT, 'history.json'))) || [];
   const now = Math.floor(Date.now() / 1000);
 
-  const [revJ, buyJ, treJ, protoJ, price, liquidity, governance] = await Promise.all([
-    step('house result', () => getJSON('https://api.llama.fi/summary/fees/overtime?dataType=dailyRevenue&excludeTotalDataChartBreakdown=true')),
-    step('buybacks', () => getJSON('https://api.llama.fi/summary/fees/overtime?dataType=dailyHoldersRevenue&excludeTotalDataChartBreakdown=true')),
-    step('treasury', () => getJSON('https://api.llama.fi/treasury/overtime')),
-    step('betting pools', () => getJSON('https://api.llama.fi/protocol/overtime')),
+  const series = (name, url, prevRows) => step(name, async () =>
+    checkSeries(name, dailySeries(await getJSON(url)).map(p => [p.t, Math.round(p.v)]), prevRows, now));
+  const [revFresh, buyFresh, treJ, price, liquidity, governance, poolsFresh] = await Promise.all([
+    series('house result', 'https://api.llama.fi/summary/fees/overtime?dataType=dailyRevenue&excludeTotalDataChartBreakdown=true', prev && prev.revenue),
+    series('buybacks', 'https://api.llama.fi/summary/fees/overtime?dataType=dailyHoldersRevenue&excludeTotalDataChartBreakdown=true', prev && prev.buybacks),
+    step('treasury', async () => {
+      const j = await getJSON('https://api.llama.fi/treasury/overtime');
+      checkSeries('treasury', treasuryToRows(parseTreasury(j)), prev && prev.treasury, now);
+      return j;
+    }),
     step('price', priceSnapshot),
     step('liquidity', liquiditySnapshot),
-    step('governance', governanceSnapshot)
+    step('governance', governanceSnapshot),
+    step('betting pools', poolSnapshot)
   ]);
 
   // Each source is either fresh today or carried over from the last good snapshot with its own
@@ -298,14 +338,12 @@ async function main() {
     return prevValue != null ? prevValue : null;
   }
 
-  const revRows = settle('revenue', revJ ? dailySeries(revJ).map(p => [p.t, Math.round(p.v)]) : null, prev && prev.revenue);
-  const buyRows = settle('buybacks', buyJ ? dailySeries(buyJ).map(p => [p.t, Math.round(p.v)]) : null, prev && prev.buybacks);
+  const revRows = settle('revenue', revFresh, prev && prev.revenue);
+  const buyRows = settle('buybacks', buyFresh, prev && prev.buybacks);
   const treasury = treJ ? parseTreasury(treJ) : null;
-  const pools = protoJ ? parseTreasury(protoJ) : null;
-  const treasuryRows = settle('treasury', treasury && treasury.length ? treasuryToRows(treasury) : null, prev && prev.treasury);
-  const bankroll = settle('bankroll', treasury && treasury.length && pools && pools.length ? bankrollRows(treasury, pools) : null, prev && prev.bankroll);
-  const poolsNow = pools && pools.length ? pools[pools.length - 1] : null;
-  const poolsSummary = settle('pools', poolsNow ? { total: Math.round(poolsNow.stable + poolsNow.major + poolsNow.other), stable: Math.round(poolsNow.stable) } : null, prev && prev.pools);
+  const treasuryRows = settle('treasury', treasury ? treasuryToRows(treasury) : null, prev && prev.treasury);
+  // Pools from the old DefiLlama-based format included open bets; never carry those over.
+  const pools = settle('pools', poolsFresh, prev && prev.pools && prev.pools.chains ? prev.pools : null);
 
   let priceData = price;
   if (priceData && !(priceData.mcap > 0) && treJ && Number(treJ.mcap) > 0) priceData.mcap = Number(treJ.mcap);
@@ -313,16 +351,39 @@ async function main() {
   const supply = settle('supply', await step('supply', () => supplySnapshot(priceData && priceData.usd)), prev && prev.supply);
   const liq = settle('liquidity', liquidity, prev && prev.liquidity);
   const gov = settle('governance', governance, prev && prev.governance);
-  const ownUsd = treasury && treasury.length ? treasury[treasury.length - 1].own : (prev ? prev.treasuryOwnUsd : null);
+
+  // Today's reading of the house's stablecoins goes into history first, so the checks and the
+  // money reconciliation see it. History keeps only fresh readings.
+  const date = new Date(now * 1000).toISOString().slice(0, 10);
+  const fresh = name => sources[name] && sources[name].ok;
+  const treasuryNow = treasury && treasury.length ? treasury[treasury.length - 1] : null;
+  const ownUsd = treasuryNow ? treasuryNow.own : (prev ? prev.treasuryOwnUsd : null);
+  const row = {
+    date,
+    price: fresh('price') ? priceData.usd : null,
+    mcap: fresh('price') ? priceData.mcap : null,
+    treasuryStable: fresh('treasury') && treasuryNow ? Math.round(treasuryNow.stable) : null,
+    poolUsdc: fresh('pools') ? pools.total : null,
+    circulating: fresh('supply') ? Math.round(supply.circulating) : null,
+    burned: fresh('supply') ? Math.round(supply.burned) : null,
+    treasuryOver: fresh('supply') ? Math.round(supply.treasury) : null,
+    liquidityUsd: fresh('liquidity') ? liq.totalUsd : null,
+    volume24h: fresh('liquidity') ? liq.volume24h : null,
+    checks: {}
+  };
+  const i = history.findIndex(h => h.date === date);
+  if (i >= 0) history[i] = row; else history.push(row);
+  history.sort((a, b) => a.date.localeCompare(b.date));
 
   // Checks run on exactly what gets published (fresh or carried over), on completed days only.
   const fromRows = rows => (rows || []).map(([t, v]) => ({ t, v }));
-  const stats = computeStats({
-    rev: revRows ? completeDays(fromRows(revRows), now) : null,
-    buy: buyRows ? completeDays(fromRows(buyRows), now) : null,
-    bankroll: bankroll ? bankrollFromRows(bankroll) : null
-  });
+  const rev = revRows ? completeDays(fromRows(revRows), now) : null;
+  const buy = buyRows ? completeDays(fromRows(buyRows), now) : null;
+  const readings = readingsFromHistory(history);
+  const stats = computeStats({ rev, buy, treasury: treasuryRows ? treasuryRows.map(([t, stable]) => ({ t, stable })) : null, readings });
   const checks = computeChecks(stats).map(c => ({ ...c, stale: c.sources.some(n => !sources[n] || !sources[n].ok) }));
+  row.checks = Object.fromEntries(checks.map(c => [c.id, c.stale ? `${c.state} (stale)` : c.state]));
+  const flows = computeFlows(readings, rev, buy);
 
   const next = {
     generatedAt: now,
@@ -331,8 +392,7 @@ async function main() {
     revenue: revRows,
     buybacks: buyRows,
     treasury: treasuryRows,
-    bankroll,
-    pools: poolsSummary,
+    pools,
     treasuryOwnUsd: ownUsd,
     treasuryOwnSymbols: treJ ? ownSymbols(treJ) : (prev ? prev.treasuryOwnSymbols : null),
     supply,
@@ -341,25 +401,6 @@ async function main() {
     checks,
     errors
   };
-
-  // History keeps only fresh readings, so a carried-over value never looks like a new data point.
-  const date = new Date(now * 1000).toISOString().slice(0, 10);
-  const fresh = name => sources[name] && sources[name].ok;
-  const row = {
-    date,
-    price: fresh('price') ? priceData.usd : null,
-    mcap: fresh('price') ? priceData.mcap : null,
-    bankroll: fresh('bankroll') && stats.bankrollNow != null ? Math.round(stats.bankrollNow) : null,
-    circulating: fresh('supply') ? Math.round(supply.circulating) : null,
-    burned: fresh('supply') ? Math.round(supply.burned) : null,
-    treasuryOver: fresh('supply') ? Math.round(supply.treasury) : null,
-    liquidityUsd: fresh('liquidity') ? liq.totalUsd : null,
-    volume24h: fresh('liquidity') ? liq.volume24h : null,
-    checks: Object.fromEntries(checks.map(c => [c.id, c.stale ? `${c.state} (stale)` : c.state]))
-  };
-  const i = history.findIndex(h => h.date === date);
-  if (i >= 0) history[i] = row; else history.push(row);
-  history.sort((a, b) => a.date.localeCompare(b.date));
 
   await writeFile(path.join(OUT, 'latest.json'), JSON.stringify(next));
   await writeFile(path.join(OUT, 'history.json'), JSON.stringify(history, null, 1));
@@ -376,6 +417,8 @@ async function main() {
   console.log(`Snapshot ${date}: ${checks.map(c => `${c.id}=${c.state}${c.stale ? ' (stale)' : ''}`).join(', ')}`);
   if (stats.lastT) console.log(`Completed days through ${fmtDate(stats.lastT)}: 30d result ${money(stats.rev30)}, buybacks ${money(stats.buy30)}`);
   if (supply) console.log(`Supply${fresh('supply') ? '' : ' (carried over)'}: circulating ${Math.round(supply.circulating)}, treasury ${Math.round(supply.treasury)}`);
+  if (pools) console.log(`Betting pools${fresh('pools') ? '' : ' (carried over)'}: ${money(pools.total)} idle USDC (${Object.entries(pools.chains).map(([c, v]) => `${c} ${money(v.usdc)} in round ${v.round}`).join(', ')})`);
+  if (flows.ready) console.log(`Money in/out over ${flows.days} days: result ${money(flows.result)}, buybacks ${money(flows.buys)}, stablecoins ${money(flows.change)}, other ${money(flows.other)}`);
   if (liq) console.log(`Liquidity: ${money(liq.totalUsd)} in ${liq.pools.length} pools`);
   if (sent && sent.length) console.log('Alerts:', sent.join(' | '));
   if (errors.length) console.log('Errors:', errors.join(' | '));

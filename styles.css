@@ -137,6 +137,12 @@ h2 { font-size:30px; font-weight:400; letter-spacing:-.04em; line-height:1.16; m
 .check.pending .badge, .check.unknown .badge { background:var(--line); color:var(--ink); }
 .stale-note { margin:8px 0 0; font-size:12.5px; line-height:1.45; color:var(--down); }
 .stale-note:empty { display:none; }
+.card.flows { margin-top:18px; }
+.flows-line { margin:0 0 6px; font-size:16px; line-height:1.55; max-width:860px; }
+.flows-line strong { font-weight:600; }
+.flows-wait { margin:0; font-size:14px; line-height:1.55; color:var(--muted); }
+.flows table { max-width:620px; margin-top:8px; }
+.flows td:last-child { white-space:normal; }
 .check-title { margin:3px 0 0; font-size:15px; }
 .check-title strong { font-weight:600; }
 .check-text { margin:6px 0 0; font-size:13.5px; line-height:1.5; color:var(--muted); }

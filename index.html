@@ -67,6 +67,12 @@
         <ul class="checks" id="checks"></ul>
       </section>
 
+      <section class="block wrap" aria-labelledby="flows-title">
+        <h2 id="flows-title">Where the money <em>went.</em></h2>
+        <p class="sub">What the house made, minus buybacks, should show up in its stablecoins: the treasury wallets plus the betting pools’ idle capital. Whatever doesn’t is “other flows”: running costs, DEX incentives, swaps into other tokens, and money riding on open bets when the pools are read.</p>
+        <div class="card flows" id="flows"><p class="flows-wait">Loading…</p></div>
+      </section>
+
       <section class="section wrap" aria-labelledby="trends-title">
         <h2 id="trends-title">Trends</h2>
         <div class="controls" aria-label="Chart controls">
@@ -83,8 +89,8 @@
         </div>
 
         <div class="card" aria-labelledby="treasury-title">
-          <h2 id="treasury-title">House stablecoins</h2>
-          <p class="sub" id="treasury-sub">Stablecoins in the treasury wallets, plus the betting pools from 21 Jul 2026, when the treasury became their only liquidity provider. If the house is losing, it shows up here first.</p>
+          <h2 id="treasury-title">Treasury stablecoins</h2>
+          <p class="sub" id="treasury-sub">Stablecoins in the treasury wallets, from DefiLlama.</p>
           <div class="chart" id="treasury-chart"><div class="empty">Loading…</div></div>
           <details><summary>Show as table</summary><div class="table-wrap" id="treasury-table"></div></details>
         </div>
