@@ -3,20 +3,20 @@
 // when a thesis check changes state or a new governance vote appears.
 //
 // Env: GITHUB_TOKEN + GITHUB_REPOSITORY to send alerts, OUT_DIR to write somewhere else,
-// NO_ALERTS=1 to skip alerts.
+// NO_ALERTS=1 to skip alerts. Tests call run() with a fake fetch, clock and output folder.
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { OVER, DEAD, LOCKED_NAME, HOLDER_VALUE, THRESHOLDS, CHAIN_NAMES } from '../lib/config.js';
 import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
 import { money, tokens, fmtDate } from '../lib/format.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = path.resolve(process.env.OUT_DIR || path.join(ROOT, 'data'));
 const PAGE_URL = 'https://provatidis.com/overwatch/';
 const UA = 'overwatch-snapshot (+https://github.com/provatidis/overwatch)';
-const errors = [];
+// Per-run context, so tests can swap the network, environment and logging.
+let ctx = { fetch: (...a) => globalThis.fetch(...a), env: process.env, errors: [], retryDelay: 1500, log: console.log, logError: console.error };
 
 const RPCS = {
   ethereum: ['https://ethereum-rpc.publicnode.com', 'https://eth.llamarpc.com', 'https://cloudflare-eth.com'],
@@ -31,13 +31,13 @@ const BLOCKSCOUT = {
   base:     'https://base.blockscout.com'
 };
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleep = ms => ms > 0 ? new Promise(r => setTimeout(r, ms)) : Promise.resolve();
 
 async function getJSON(url, opts = {}, tries = 3) {
   let last;
   for (let i = 0; i < tries; i++) {
     try {
-      const res = await fetch(url, {
+      const res = await ctx.fetch(url, {
         ...opts,
         headers: { 'user-agent': UA, accept: 'application/json', ...(opts.headers || {}) },
         signal: AbortSignal.timeout(60_000)
@@ -46,7 +46,7 @@ async function getJSON(url, opts = {}, tries = 3) {
       return await res.json();
     } catch (e) {
       last = e;
-      if (i < tries - 1) await sleep(1500 * (i + 1));
+      if (i < tries - 1) await sleep(ctx.retryDelay * (i + 1));
     }
   }
   throw last;
@@ -54,7 +54,7 @@ async function getJSON(url, opts = {}, tries = 3) {
 
 async function step(name, fn) {
   try { return await fn(); }
-  catch (e) { errors.push(`${name}: ${e.message}`); console.error(`[${name}]`, e); return null; }
+  catch (e) { ctx.errors.push(`${name}: ${e.message}`); ctx.logError(`[${name}]`, e.message); return null; }
 }
 
 // A reply can succeed and still be wrong: empty, cut short, or stuck on an old day. Anything that
@@ -270,10 +270,10 @@ async function priceSnapshot() {
 
 // ---------- Alerts ----------
 async function gh(p, method = 'GET', body) {
-  const res = await fetch(`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}${p}`, {
+  const res = await ctx.fetch(`https://api.github.com/repos/${ctx.env.GITHUB_REPOSITORY}${p}`, {
     method,
     headers: {
-      authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      authorization: `Bearer ${ctx.env.GITHUB_TOKEN}`,
       accept: 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28',
       'content-type': 'application/json',
@@ -286,7 +286,7 @@ async function gh(p, method = 'GET', body) {
 }
 
 async function sendAlerts(prev, next) {
-  if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPOSITORY || process.env.NO_ALERTS === '1' || !prev) return [];
+  if (!ctx.env.GITHUB_TOKEN || !ctx.env.GITHUB_REPOSITORY || ctx.env.NO_ALERTS === '1' || !prev) return [];
   const sent = [];
   const openIssues = await gh('/issues?state=open&per_page=100');
   const marker = id => `<!-- overwatch:${id} -->`;
@@ -350,11 +350,10 @@ async function readJSON(file) {
   try { return JSON.parse(await readFile(file, 'utf8')); } catch { return null; }
 }
 
-async function main() {
+async function main(now, OUT) {
   await mkdir(OUT, { recursive: true });
   const prev = await readJSON(path.join(OUT, 'latest.json'));
   const history = (await readJSON(path.join(OUT, 'history.json'))) || [];
-  const now = Math.floor(Date.now() / 1000);
 
   const series = (name, url, prevRows) => step(name, async () =>
     checkSeries(name, dailySeries(await getJSON(url)).map(p => [p.t, Math.round(p.v)]), prevRows, now));
@@ -456,7 +455,7 @@ async function main() {
     liquidity: liq,
     governance: gov,
     checks,
-    errors,
+    errors: ctx.errors,
     alertDetail: { houseOver: fresh('supply') ? (moves => moves.length ? `Treasury wallets that moved since the last reading:\n- ${moves.join('\n- ')}` : null)(walletMoves(prev && prev.supply, supply)) : null }
   };
 
@@ -472,16 +471,27 @@ async function main() {
   }
 
   const sent = await step('alerts', () => sendAlerts(prev, next));
-  console.log(`Snapshot ${date}: ${checks.map(c => `${c.id}=${c.state}${c.stale ? ' (stale)' : ''}`).join(', ')}`);
-  if (stats.lastT) console.log(`Completed days through ${fmtDate(stats.lastT)}: 30d result ${money(stats.rev30)}, buybacks ${money(stats.buy30)}`);
-  if (supply) console.log(`Supply${fresh('supply') ? '' : ' (carried over)'}: circulating ${Math.round(supply.circulating)}, treasury ${Math.round(supply.treasury)}`);
-  if (overPools) console.log(`OVER pools${fresh('overPools') ? '' : ' (carried over)'}: ${tokens(overPools.total)} OVER (${Object.entries(overPools.chains).map(([c, v]) => `${c} ${tokens(v.over)} in round ${v.round}`).join(', ')})`);
-  if (pools) console.log(`Betting pools${fresh('pools') ? '' : ' (carried over)'}: ${money(pools.total)} idle USDC (${Object.entries(pools.chains).map(([c, v]) => `${c} ${money(v.usdc)} in round ${v.round}`).join(', ')})`);
-  if (flows.ready) console.log(`Money in/out over ${flows.days} days: result ${money(flows.result)}, buybacks ${money(flows.buys)}, stablecoins ${money(flows.change)}, other ${money(flows.other)}`);
-  if (liq) console.log(`Liquidity: ${money(liq.totalUsd)} in ${liq.pools.length} pools`);
-  if (sent && sent.length) console.log('Alerts:', sent.join(' | '));
-  if (errors.length) console.log('Errors:', errors.join(' | '));
-  if (!fresh('revenue') && !fresh('treasury')) process.exitCode = 1; // nothing useful fetched
+  ctx.log(`Snapshot ${date}: ${checks.map(c => `${c.id}=${c.state}${c.stale ? ' (stale)' : ''}`).join(', ')}`);
+  if (stats.lastT) ctx.log(`Completed days through ${fmtDate(stats.lastT)}: 30d result ${money(stats.rev30)}, buybacks ${money(stats.buy30)}`);
+  if (supply) ctx.log(`Supply${fresh('supply') ? '' : ' (carried over)'}: circulating ${Math.round(supply.circulating)}, treasury ${Math.round(supply.treasury)}`);
+  if (overPools) ctx.log(`OVER pools${fresh('overPools') ? '' : ' (carried over)'}: ${tokens(overPools.total)} OVER (${Object.entries(overPools.chains).map(([c, v]) => `${c} ${tokens(v.over)} in round ${v.round}`).join(', ')})`);
+  if (pools) ctx.log(`Betting pools${fresh('pools') ? '' : ' (carried over)'}: ${money(pools.total)} idle USDC (${Object.entries(pools.chains).map(([c, v]) => `${c} ${money(v.usdc)} in round ${v.round}`).join(', ')})`);
+  if (flows.ready) ctx.log(`Money in/out over ${flows.days} days: result ${money(flows.result)}, buybacks ${money(flows.buys)}, stablecoins ${money(flows.change)}, other ${money(flows.other)}`);
+  if (liq) ctx.log(`Liquidity: ${money(liq.totalUsd)} in ${liq.pools.length} pools`);
+  if (sent && sent.length) ctx.log('Alerts:', sent.join(' | '));
+  if (ctx.errors.length) ctx.log('Errors:', ctx.errors.join(' | '));
+  return { next, history, sent: sent || [], stats, flows, ok: fresh('revenue') || fresh('treasury') };
 }
 
-await main();
+// Run one snapshot. Everything has a default for the real job; tests override what they need.
+export async function run({ now = Math.floor(Date.now() / 1000), fetchImpl, env = process.env, outDir, retryDelay = 1500, log = console.log, logError = console.error } = {}) {
+  ctx = { fetch: fetchImpl || ((...a) => globalThis.fetch(...a)), env, errors: [], retryDelay, log, logError };
+  const out = path.resolve(outDir || env.OUT_DIR || path.join(ROOT, 'data'));
+  return main(now, out);
+}
+
+// Run when executed directly (node scripts/snapshot.mjs), not when imported by the tests.
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const result = await run();
+  if (!result.ok) process.exitCode = 1; // nothing useful fetched
+}

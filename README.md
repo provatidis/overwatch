@@ -44,6 +44,14 @@ When a thesis check gets worse (Healthy → Watch → Alert), the job opens an i
 - Treasury wallets counted in the supply panel: `OVER.treasury` in `lib/config.js`. If the panel's note shows a big gap between DefiLlama's own-token value and the treasury figure, a wallet is missing.
 - Run the job by hand: Actions → Daily snapshot → Run workflow.
 
+## Tests
+
+```sh
+npm test
+```
+
+Node's built-in test runner, no dependencies. `test/metrics.test.js` covers the checks and the money reconciliation. `test/snapshot.test.js` runs the real snapshot job day by day against a fake world (`test/fake-world.js`) and stages every failure found so far: empty, short or stale replies, a down feed, a bridge mismatch, a failed pool read, an empty proposal list, buyback cuts and raises, OVER leaving the house and alerts closing themselves. Tests run on every push, and the daily job runs them first, so a broken change never publishes data.
+
 ## Local preview
 
 Plain HTML, CSS and JavaScript modules; no build step or dependencies.
