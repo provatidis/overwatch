@@ -1,6 +1,7 @@
 {
   "name": "overwatch",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "OVER watch: a live tracker for Overtime ($OVER).",
   "scripts": {

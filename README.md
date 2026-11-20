@@ -67,4 +67,10 @@ Open http://127.0.0.1:8765. The home links point at provatidis.com, so they only
 
 The mark is a stopwatch drawn as the O of OVER, its hand just past twelve. Colors: night ink `#0e1511`, chalk `#f2f3ec`, floodlight lime `#c6f05b` (deep lime `#4f7a16` on light backgrounds). Type: Inter Tight, with Instrument Serif italic for *watch*, both served from `assets/fonts` under the SIL Open Font License. Charts keep a separate blue and orange pair that passes colorblind checks.
 
-Not financial advice.
+## License
+
+Code: [MIT](LICENSE), © 2026 Apostolos Provatidis.
+
+Data in `data/` comes from DefiLlama, CoinGecko, DexScreener, Snapshot and public blockchain reads, and stays under those sources' own terms. Fonts in `assets/fonts` are under the SIL Open Font License (`assets/fonts/LICENSE.txt`).
+
+I hold a small OVER position. Not financial advice.
