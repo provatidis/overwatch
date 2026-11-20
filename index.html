@@ -17,212 +17,13 @@
       })();
     </script>
     <title>OVER watch — Overtime treasury, house result and buybacks</title>
-    <meta name="description" content="A small live tracker for Overtime ($OVER): treasury stablecoins, the house result and how much of it goes to buybacks.">
+    <meta name="description" content="A live tracker for Overtime ($OVER): treasury, house result, buybacks, supply, liquidity and governance.">
     <meta name="robots" content="noindex">
     <link rel="canonical" href="https://provatidis.com/overwatch/">
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
-    <style>
-      :root {
-        --paper:#f7f7f2;
-        --ink:#253c30;
-        --muted:#647166;
-        --line:#d9ded4;
-        --card:#fcfcf8;
-        --link-hover:#526b39;
-        --baseline:#b3bdae;
-        --series-1:#2a78d6;
-        --series-2:#eb6834;
-        --good:#0ca30c;
-        --warning:#fab219;
-        --critical:#d03b3b;
-        --up:#006300;
-        --down:#c23434;
-        --shadow:0 8px 28px rgba(37,60,48,.12);
-        --serif:Georgia,'Times New Roman',serif;
-        --sans:'Helvetica Neue',Arial,sans-serif;
-        color-scheme:light;
-        font-family:var(--sans);
-        font-synthesis:none;
-        background:var(--paper);
-        color:var(--ink);
-      }
-      :root[data-theme=dark] {
-        --paper:#17221c;
-        --ink:#e6ecdf;
-        --muted:#a4afa1;
-        --line:#35463a;
-        --card:#1d2b23;
-        --link-hover:#c4d8a2;
-        --baseline:#4c6051;
-        --series-1:#3987e5;
-        --series-2:#d95926;
-        --up:#0ca30c;
-        --down:#e66767;
-        --shadow:0 8px 28px rgba(0,0,0,.35);
-        color-scheme:dark;
-      }
-      @media (prefers-color-scheme:dark) {
-        :root:not([data-theme]) {
-          --paper:#17221c;
-          --ink:#e6ecdf;
-          --muted:#a4afa1;
-          --line:#35463a;
-          --card:#1d2b23;
-          --link-hover:#c4d8a2;
-          --baseline:#4c6051;
-          --series-1:#3987e5;
-          --series-2:#d95926;
-          --up:#0ca30c;
-          --down:#e66767;
-          --shadow:0 8px 28px rgba(0,0,0,.35);
-          color-scheme:dark;
-        }
-      }
-      * { box-sizing:border-box; }
-      body { margin:0; -webkit-font-smoothing:antialiased; }
-      a { color:inherit; }
-      button { font:inherit; }
-      svg { display:block; }
-      ::selection { background:#cfe695; color:#253c30; }
-      a:focus-visible, button:focus-visible, summary:focus-visible { outline:2px solid currentColor; outline-offset:4px; border-radius:2px; }
-      .wrap { width:min(1184px, calc(100% - 112px)); margin-inline:auto; }
-      .skip-link { position:fixed; z-index:30; top:12px; left:12px; transform:translateY(-150%); padding:12px 18px; background:var(--ink); color:var(--paper); }
-      .skip-link:focus { transform:translateY(0); }
-
-      /* Header and footer mirror the main site. */
-      .site-header { height:116px; display:flex; align-items:center; gap:28px; border-bottom:1px solid var(--line); }
-      .identity { display:flex; align-items:center; gap:14px; text-decoration:none; }
-      .monogram { font-size:34px; line-height:1; letter-spacing:-3px; font-weight:600; }
-      .monogram span { color:#7c9861; }
-      .identity-name { font-size:12px; line-height:1.45; font-weight:500; letter-spacing:.01em; }
-      .site-header nav { margin-left:auto; font-size:14px; }
-      .site-header nav a { padding:14px 0; text-decoration:none; }
-      .site-header nav a:hover { color:var(--link-hover); }
-      .theme-toggle { width:44px; height:44px; flex-shrink:0; padding:12px; background:none; border:1px solid var(--line); border-radius:50%; color:var(--ink); cursor:pointer; }
-      .theme-toggle:hover { background:var(--line); }
-      .theme-toggle svg { width:100%; height:100%; }
-      .theme-toggle .sun { display:none; }
-      [data-theme=dark] .theme-toggle .moon { display:none; }
-      [data-theme=dark] .theme-toggle .sun { display:block; }
-      .site-footer { display:flex; justify-content:space-between; align-items:center; gap:24px; border-top:1px solid var(--line); margin-top:40px; padding:25px 0 32px; color:var(--muted); font-size:12px; line-height:1.6; }
-      .site-footer a { font-size:14px; text-decoration:none; white-space:nowrap; }
-      .site-footer a:hover { color:var(--ink); }
-      .site-footer span a { font-size:inherit; text-decoration:underline; text-underline-offset:2px; }
-
-      /* Intro */
-      .intro { padding:48px 0 30px; border-bottom:1px solid var(--line); display:grid; grid-template-columns:1.2fr 1fr; column-gap:60px; align-items:end; }
-      .eyebrow { font-size:12px; font-weight:600; letter-spacing:.13em; line-height:1.7; margin:0; }
-      h1 { font-size:clamp(46px, 5.4vw, 76px); font-weight:400; letter-spacing:-.04em; line-height:1.02; margin:14px 0 0; }
-      h1 em, h2 em { font-family:var(--serif); font-weight:400; }
-      .lead { font-size:16px; line-height:1.6; margin:0; }
-      .lead a { text-underline-offset:3px; }
-      .status { grid-column:1 / -1; margin:22px 0 0; font-size:13px; color:var(--muted); }
-      .status.error { color:var(--down); }
-
-      /* Stat tiles */
-      .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(178px, 1fr)); gap:12px; padding:28px 0 8px; }
-      .tile { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px 18px; min-height:132px; }
-      .tile .label { font-size:13px; color:var(--muted); margin:0 0 10px; }
-      .tile .value { font-size:28px; font-weight:600; letter-spacing:-.02em; line-height:1.1; margin:0; }
-      .tile .delta { font-size:13px; font-weight:600; margin:8px 0 0; }
-      .tile .delta.up { color:var(--up); }
-      .tile .delta.down { color:var(--down); }
-      .tile .delta span { font-weight:400; color:var(--muted); }
-      .tile .note { font-size:12.5px; line-height:1.45; color:var(--muted); margin:8px 0 0; }
-
-      /* Section headings */
-      .block { padding-top:36px; }
-      h2 { font-size:30px; font-weight:400; letter-spacing:-.04em; line-height:1.16; margin:0; }
-      .sub { font-size:14px; line-height:1.55; color:var(--muted); margin:8px 0 0; max-width:720px; }
-
-      /* Thesis checks */
-      .checks { list-style:none; margin:18px 0 0; padding:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
-      .check { display:grid; grid-template-columns:28px 1fr; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
-      .badge { width:28px; height:28px; border-radius:50%; display:grid; place-items:center; font-size:15px; font-weight:700; line-height:1; color:#fff; background:var(--muted); }
-      .check.good .badge { background:var(--good); }
-      .check.watch .badge { background:var(--warning); color:#0b0b0b; }
-      .check.alert .badge { background:var(--critical); }
-      .check-title { margin:3px 0 0; font-size:15px; }
-      .check-title strong { font-weight:600; }
-      .check-text { margin:6px 0 0; font-size:13.5px; line-height:1.5; color:var(--muted); }
-
-      /* Controls */
-      .controls { display:flex; flex-wrap:wrap; gap:14px 28px; align-items:center; padding-top:36px; }
-      .control { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--muted); }
-      .seg { display:inline-flex; border:1px solid var(--line); border-radius:999px; padding:3px; background:var(--card); }
-      .seg button { border:0; background:none; color:var(--muted); padding:7px 14px; border-radius:999px; cursor:pointer; font-size:13px; }
-      .seg button:hover { color:var(--ink); }
-      .seg button[aria-pressed=true] { background:var(--ink); color:var(--paper); }
-
-      /* Chart cards */
-      .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px 24px 18px; margin-top:16px; }
-      .card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px 28px; flex-wrap:wrap; }
-      .legend { display:flex; flex-wrap:wrap; gap:8px 20px; font-size:13px; margin-top:4px; }
-      .legend .item { display:flex; align-items:center; gap:8px; }
-      .legend .sw { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
-      .legend .val { color:var(--muted); }
-      .sw.s1, .k.s1 { background:var(--series-1); }
-      .sw.s2, .k.s2 { background:var(--series-2); }
-      .chart { position:relative; height:300px; margin-top:18px; }
-      .chart svg { width:100%; height:100%; overflow:visible; }
-      .chart svg:focus { outline:none; }
-      .chart svg:focus-visible { outline:2px solid var(--ink); outline-offset:4px; border-radius:4px; }
-      .empty { height:100%; display:grid; place-items:center; color:var(--muted); font-size:14px; }
-      .grid { stroke:var(--line); stroke-width:1; shape-rendering:crispEdges; }
-      .baseline { stroke:var(--baseline); stroke-width:1; shape-rendering:crispEdges; }
-      .tick { fill:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
-      .line { fill:none; stroke:var(--series-1); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
-      .area { fill:var(--series-1); opacity:.1; }
-      .dot { fill:var(--series-1); stroke:var(--card); stroke-width:2; }
-      .end-label { fill:var(--ink); font-size:12px; font-weight:600; }
-      .annot line { stroke:var(--muted); stroke-width:1; opacity:.55; shape-rendering:crispEdges; }
-      .annot text { fill:var(--muted); font-size:11px; }
-      .cross { stroke:var(--muted); stroke-width:1; shape-rendering:crispEdges; pointer-events:none; }
-      .b-rev { fill:var(--series-1); }
-      .b-buy { fill:var(--series-2); }
-      .group { cursor:default; }
-      .group .hit { fill:var(--ink); fill-opacity:0; }
-      .group:hover .hit, .group:focus .hit { fill-opacity:.05; }
-      .group:focus { outline:none; }
-      .group:focus-visible .hit { stroke:var(--ink); stroke-width:1; }
-      .group.partial .bar { opacity:.45; }
-      .fine { font-size:12.5px; line-height:1.55; color:var(--muted); margin:14px 0 0; max-width:820px; }
-      details { margin-top:12px; font-size:13px; }
-      summary { cursor:pointer; color:var(--muted); width:max-content; }
-      summary:hover { color:var(--ink); }
-      .table-wrap { max-height:340px; overflow:auto; margin-top:10px; border-top:1px solid var(--line); }
-      table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
-      th, td { padding:7px 12px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
-      th:first-child, td:first-child { text-align:left; }
-      th { font-weight:600; position:sticky; top:0; background:var(--card); }
-
-      /* Tooltip */
-      .tip { position:fixed; z-index:20; pointer-events:none; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 12px; box-shadow:var(--shadow); font-size:12.5px; min-width:170px; }
-      .tip .t-head { color:var(--muted); margin-bottom:6px; }
-      .tip .row { display:flex; align-items:center; gap:8px; margin-top:4px; }
-      .tip .k { width:12px; height:2px; border-radius:1px; flex-shrink:0; }
-      .tip strong { font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
-      .tip .n { color:var(--muted); }
-
-      @media (max-width:1000px) {
-        .wrap { width:calc(100% - 64px); }
-        .intro { grid-template-columns:1fr; row-gap:20px; }
-      }
-      @media (max-width:640px) {
-        .wrap { width:calc(100% - 36px); }
-        .site-header { height:84px; }
-        .card { padding:18px 14px 14px; }
-        .tiles { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
-        .tile { padding:14px; min-height:0; }
-        .tile .value { font-size:23px; }
-        .chart { height:260px; }
-        .site-footer { flex-direction:column; align-items:flex-start; }
-      }
-      @media (forced-colors:active) {
-        .b-rev, .b-buy, .line, .dot, .area { forced-color-adjust:auto; }
-      }
-    </style>
+    <link rel="stylesheet" href="./styles.css">
+    <script type="module" src="./app.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -238,8 +39,8 @@
           <p class="eyebrow">TRACKER / OVERTIME</p>
           <h1 id="title">OVER <em>watch.</em></h1>
         </div>
-        <p class="lead">Three numbers that show whether <a href="https://www.overtime.io/" rel="noopener">Overtime</a>’s onchain sportsbook is working for $OVER holders: the treasury’s stablecoins, the house result, and how much of that result goes to buying back and burning the token.</p>
-        <p class="status" id="status" role="status">Loading live data…</p>
+        <p class="lead">Is <a href="https://www.overtime.io/" rel="noopener">Overtime</a>’s onchain sportsbook working for $OVER holders? The treasury’s stablecoins, the house result and how much of it buys back and burns the token, plus supply, liquidity and governance.</p>
+        <p class="status" id="status" role="status">Loading data…</p>
         <noscript><p class="status error">This page loads its figures with JavaScript.</p></noscript>
       </section>
 
@@ -247,646 +48,85 @@
 
       <section class="block wrap" aria-labelledby="checks-title">
         <h2 id="checks-title">Thesis <em>checks.</em></h2>
-        <p class="sub">Each check turns amber or red when its number crosses the thresholds set at the top of this page’s script.</p>
+        <p class="sub">Each check turns amber or red when its number crosses the thresholds in <code>lib/config.js</code>. A daily job opens a GitHub issue in this project’s repo when one gets worse, and closes it when it recovers.</p>
         <ul class="checks" id="checks"></ul>
       </section>
 
-      <div class="controls wrap" aria-label="Chart controls">
-        <div class="control"><span id="range-label">Range</span>
-          <div class="seg" role="group" aria-labelledby="range-label" data-control="range">
-            <button type="button" data-value="182">6M</button><button type="button" data-value="365" aria-pressed="true">1Y</button><button type="button" data-value="730">2Y</button><button type="button" data-value="all">All</button>
+      <section class="section wrap" aria-labelledby="trends-title">
+        <h2 id="trends-title">Trends</h2>
+        <div class="controls" aria-label="Chart controls">
+          <div class="control"><span id="range-label">Range</span>
+            <div class="seg" role="group" aria-labelledby="range-label" data-control="range">
+              <button type="button" data-value="182">6M</button><button type="button" data-value="365" aria-pressed="true">1Y</button><button type="button" data-value="730">2Y</button><button type="button" data-value="all">All</button>
+            </div>
+          </div>
+          <div class="control"><span id="bars-label">Bars</span>
+            <div class="seg" role="group" aria-labelledby="bars-label" data-control="mode">
+              <button type="button" data-value="month" aria-pressed="true">Monthly</button><button type="button" data-value="quarter">Quarterly</button>
+            </div>
           </div>
         </div>
-        <div class="control"><span id="bars-label">Bars</span>
-          <div class="seg" role="group" aria-labelledby="bars-label" data-control="mode">
-            <button type="button" data-value="month" aria-pressed="true">Monthly</button><button type="button" data-value="quarter">Quarterly</button>
-          </div>
-        </div>
-      </div>
 
-      <section class="card wrap" aria-labelledby="treasury-title">
-        <h2 id="treasury-title">Treasury stablecoins</h2>
-        <p class="sub" id="treasury-sub">Stablecoins held by the treasury across chains. Since the treasury became the only liquidity provider, this is the house’s bankroll, so losses show up here first.</p>
-        <div class="chart" id="treasury-chart"><div class="empty">Loading…</div></div>
-        <details><summary>Show as table</summary><div class="table-wrap" id="treasury-table"></div></details>
+        <div class="card" aria-labelledby="treasury-title">
+          <h2 id="treasury-title">Treasury stablecoins</h2>
+          <p class="sub" id="treasury-sub">Stablecoins held by the treasury across chains. Since the treasury became the only liquidity provider, this is the house’s bankroll, so losses show up here first.</p>
+          <div class="chart" id="treasury-chart"><div class="empty">Loading…</div></div>
+          <details><summary>Show as table</summary><div class="table-wrap" id="treasury-table"></div></details>
+        </div>
+
+        <div class="card" aria-labelledby="rev-title">
+          <div class="card-head">
+            <div>
+              <h2 id="rev-title">House result and buybacks</h2>
+              <p class="sub">What the protocol kept from betting, next to the stablecoins it spent buying back and burning OVER.</p>
+            </div>
+            <div class="legend" id="rev-legend">
+              <span class="item"><span class="sw s1"></span>House result <span class="val" id="legend-rev"></span></span>
+              <span class="item"><span class="sw s2"></span>Buybacks <span class="val" id="legend-buy"></span></span>
+            </div>
+          </div>
+          <div class="chart" id="rev-chart"><div class="empty">Loading…</div></div>
+          <p class="fine">Faded bars are periods still in progress. “House result” is DefiLlama’s revenue figure: fees until 21 Jul 2026, then the full betting result after OIP-265 made the treasury the only liquidity provider, so it can be negative. Buybacks count stablecoins spent on OVER; tokens burned directly from bets placed in OVER aren’t included here, but they do show up in the burned supply below.</p>
+          <details><summary>Show as table</summary><div class="table-wrap" id="rev-table"></div></details>
+        </div>
       </section>
 
-      <section class="card wrap" aria-labelledby="rev-title">
-        <div class="card-head">
-          <div>
-            <h2 id="rev-title">House result and buybacks</h2>
-            <p class="sub">What the protocol kept from betting, next to the stablecoins it spent buying back and burning OVER.</p>
-          </div>
-          <div class="legend" id="rev-legend">
-            <span class="item"><span class="sw s1"></span>House result <span class="val" id="legend-rev"></span></span>
-            <span class="item"><span class="sw s2"></span>Buybacks <span class="val" id="legend-buy"></span></span>
-          </div>
+      <section class="section wrap" aria-labelledby="supply-title">
+        <h2 id="supply-title">Supply and <em>float.</em></h2>
+        <p class="sub">Read straight from the OVER contracts on Ethereum, Optimism, Arbitrum and Base. Burned counts every burn, including tokens burned from bets placed in OVER. Free float is what’s left once the treasury’s own tokens are taken out.</p>
+        <div class="tiles four" id="supply-tiles"></div>
+        <div class="card">
+          <h2>Circulating supply</h2>
+          <p class="sub" id="supply-sub">One reading a day from the snapshot job.</p>
+          <div class="chart short" id="supply-chart"><div class="empty">Loading…</div></div>
+          <p class="fine" id="supply-note"></p>
+          <details><summary>Show by chain</summary><div class="table-wrap" id="supply-table"></div></details>
         </div>
-        <div class="chart" id="rev-chart"><div class="empty">Loading…</div></div>
-        <p class="fine">Faded bars are periods still in progress. “House result” is DefiLlama’s revenue figure: fees until 21 Jul 2026, then the full betting result after OIP-265 made the treasury the only liquidity provider, so it can be negative. Buybacks count stablecoins spent on OVER; tokens burned directly from bets placed in OVER aren’t included.</p>
-        <details><summary>Show as table</summary><div class="table-wrap" id="rev-table"></div></details>
+      </section>
+
+      <section class="section wrap" aria-labelledby="liq-title">
+        <h2 id="liq-title">Liquidity</h2>
+        <p class="sub">DEX pools holding OVER on every chain, from DexScreener. Pool liquidity counts both sides, so roughly half of it is OVER. The deeper the pools, the less a sale moves the price.</p>
+        <div class="tiles" id="liq-tiles"></div>
+        <div class="card">
+          <h2>Pools by liquidity</h2>
+          <div class="chart" id="liq-chart"><div class="empty">Loading…</div></div>
+          <details><summary>Show as table</summary><div class="table-wrap" id="liq-table"></div></details>
+        </div>
+      </section>
+
+      <section class="section wrap" aria-labelledby="gov-title">
+        <h2 id="gov-title">Governance</h2>
+        <p class="sub">Latest Overtime Improvement Proposals on Snapshot. Since OIP-263 in June 2026, OVER holders vote directly. Proposals tagged “Holder value” touch buybacks, fees, incentives or the treasury.</p>
+        <div class="card list"><ul class="props" id="props"><li class="prop"><span></span><span class="meta">Loading…</span></li></ul></div>
       </section>
 
       <footer class="site-footer wrap">
-        <span>Data from <a href="https://defillama.com/protocol/overtime" rel="noopener">DefiLlama</a> (house result, buybacks, treasury) and CoinGecko (price, market cap), fetched when the page loads<span id="updated"></span>. Not financial advice.</span>
+        <span>Data from <a href="https://defillama.com/protocol/overtime" rel="noopener">DefiLlama</a>, the OVER contracts, DexScreener, Snapshot and CoinGecko, collected once a day by <a href="https://github.com/provatidis/overwatch" rel="noopener">a scheduled job</a>; the price is live. Not financial advice.</span>
         <a href="/">← provatidis.com</a>
       </footer>
     </main>
 
     <div class="tip" id="tooltip" role="tooltip" hidden></div>
-
-    <script>
-    (() => {
-      'use strict';
-
-      // ---------- Settings: change these to tune the checks ----------
-      const THRESHOLDS = {
-        bankroll30d:  { good: -0.05, watch: -0.15 }, // change in treasury stablecoins over 30 days
-        quarter:      { good: 0,     watch: -0.15 }, // last full quarter's house result vs the one before
-        buybackShare: { good: 0.30,  watch: 0.15 }   // buybacks ÷ house result over the last 90 days
-      };
-      const API = {
-        revenue:  'https://api.llama.fi/summary/fees/overtime?dataType=dailyRevenue&excludeTotalDataChartBreakdown=true',
-        buybacks: 'https://api.llama.fi/summary/fees/overtime?dataType=dailyHoldersRevenue&excludeTotalDataChartBreakdown=true',
-        treasury: 'https://api.llama.fi/treasury/overtime',
-        price:    'https://api.coingecko.com/api/v3/simple/price?ids=overtime&vs_currencies=usd&include_market_cap=true&include_24hr_change=true',
-        priceAlt: 'https://coins.llama.fi/prices/current/coingecko:overtime'
-      };
-      const ANNOTATIONS = [{ t: Date.UTC(2026, 6, 21) / 1000, label: 'OIP-265' }];
-      const DAY = 86400;
-
-      // ---------- Theme (same storage key as the main site) ----------
-      const root = document.documentElement;
-      const toggle = document.querySelector('.theme-toggle');
-      const systemTheme = matchMedia('(prefers-color-scheme: dark)');
-      let preference = null;
-      try {
-        const saved = localStorage.getItem('ap-theme');
-        if (saved === 'dark' || saved === 'light') preference = saved;
-      } catch { /* Optional. */ }
-      function applyTheme(theme) {
-        root.dataset.theme = theme;
-        toggle.setAttribute('aria-label', `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`);
-        document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#17221c' : '#f7f7f2';
-      }
-      applyTheme(preference || (systemTheme.matches ? 'dark' : 'light'));
-      toggle.hidden = false;
-      toggle.addEventListener('click', () => {
-        preference = root.dataset.theme === 'dark' ? 'light' : 'dark';
-        applyTheme(preference);
-        try { localStorage.setItem('ap-theme', preference); } catch { /* Optional. */ }
-      });
-      systemTheme.addEventListener('change', e => { if (!preference) applyTheme(e.matches ? 'dark' : 'light'); });
-
-      // ---------- Helpers ----------
-      const $ = id => document.getElementById(id);
-      const SVGNS = 'http://www.w3.org/2000/svg';
-      function svg(tag, attrs, parent) {
-        const el = document.createElementNS(SVGNS, tag);
-        for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
-        if (parent) parent.appendChild(el);
-        return el;
-      }
-      function el(tag, className, text, parent) {
-        const node = document.createElement(tag);
-        if (className) node.className = className;
-        if (text != null) node.textContent = text;
-        if (parent) parent.appendChild(node);
-        return node;
-      }
-      const MINUS = '−';
-      const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-      const ok = v => v != null && Number.isFinite(v);
-
-      function money(v) {
-        if (!ok(v)) return '—';
-        const a = Math.abs(v), s = v < 0 ? MINUS : '';
-        let out;
-        if (a >= 1e9) out = (a / 1e9).toFixed(2) + 'B';
-        else if (a >= 1e6) out = (a / 1e6).toFixed(a >= 1e8 ? 0 : a >= 1e7 ? 1 : 2) + 'M';
-        else if (a >= 1e3) out = (a / 1e3).toFixed(a >= 1e5 ? 0 : 1) + 'K';
-        else out = a.toFixed(0);
-        return `${s}$${out}`;
-      }
-      function axisMoney(v) {
-        if (v === 0) return '$0';
-        const a = Math.abs(v), s = v < 0 ? MINUS : '';
-        const trim = x => String(+x.toFixed(2));
-        if (a >= 1e6) return `${s}$${trim(a / 1e6)}M`;
-        if (a >= 1e3) return `${s}$${trim(a / 1e3)}K`;
-        return `${s}$${trim(a)}`;
-      }
-      function pct(v, signed) {
-        if (!ok(v)) return '—';
-        const a = Math.abs(v) * 100;
-        const body = a.toFixed(a < 10 ? 1 : 0) + '%';
-        if (!signed) return (v < 0 ? MINUS : '') + body;
-        return (v > 0 ? '+' : v < 0 ? MINUS : '±') + body;
-      }
-      const whole = v => `${v > 0 ? '+' : v < 0 ? MINUS : ''}${Math.round(Math.abs(v) * 100)}%`;
-      const fmtDate = t => new Date(t * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-      const shortMonth = t => { const d = new Date(t * 1000); return `${MONTHS[d.getUTCMonth()]} ’${String(d.getUTCFullYear()).slice(2)}`; };
-
-      function niceScale(min, max, count) {
-        if (min === max) max = min + 1;
-        const raw = (max - min) / count;
-        const mag = 10 ** Math.floor(Math.log10(raw));
-        const n = raw / mag;
-        const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
-        const lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step;
-        const ticks = [];
-        for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Math.abs(v) < step / 1e6 ? 0 : +v.toPrecision(12));
-        return { lo, hi, ticks };
-      }
-      function nearest(points, t) {
-        let lo = 0, hi = points.length - 1;
-        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (points[mid].t < t) lo = mid; else hi = mid; }
-        return Math.abs(points[lo].t - t) <= Math.abs(points[hi].t - t) ? lo : hi;
-      }
-
-      // ---------- Periods ----------
-      function periodStart(t, mode) {
-        const d = new Date(t * 1000);
-        let m = d.getUTCMonth();
-        if (mode === 'quarter') m -= m % 3;
-        return Date.UTC(d.getUTCFullYear(), m, 1) / 1000;
-      }
-      function periodNext(start, mode) {
-        const d = new Date(start * 1000);
-        return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + (mode === 'quarter' ? 3 : 1), 1) / 1000;
-      }
-      function periodLabel(start, mode, long) {
-        const d = new Date(start * 1000), y = d.getUTCFullYear(), m = d.getUTCMonth();
-        if (mode === 'quarter') { const q = Math.floor(m / 3) + 1; return long ? `Q${q} ${y}` : `Q${q} ’${String(y).slice(2)}`; }
-        return long ? `${MONTHS_LONG[m]} ${y}` : `${MONTHS[m]} ’${String(y).slice(2)}`;
-      }
-
-      // ---------- Data shaping ----------
-      function dailySeries(json) {
-        const rows = Array.isArray(json && json.totalDataChart) ? json.totalDataChart : [];
-        return rows
-          .filter(r => Array.isArray(r) && ok(Number(r[0])))
-          .map(([t, v]) => ({ t: Math.floor(t / DAY) * DAY, v: Number(v) || 0 }))
-          .sort((a, b) => a.t - b.t);
-      }
-      function sumWindow(series, endT, days) {
-        const from = endT - (days - 1) * DAY;
-        let s = 0;
-        for (const p of series) if (p.t >= from && p.t <= endT) s += p.v;
-        return s;
-      }
-      function aggregate(rev, buy, mode) {
-        const map = new Map();
-        const add = (series, field) => {
-          for (const p of series) {
-            const s = periodStart(p.t, mode);
-            let r = map.get(s);
-            if (!r) { r = { start: s, end: periodNext(s, mode), rev: 0, buy: 0 }; map.set(s, r); }
-            r[field] += p.v;
-          }
-        };
-        add(rev, 'rev');
-        add(buy, 'buy');
-        const first = rev.length ? rev[0].t : 0, last = rev.length ? rev[rev.length - 1].t : 0;
-        return [...map.values()]
-          .filter(r => r.end > first)
-          .sort((a, b) => a.start - b.start)
-          .map(r => ({ ...r, partial: first > r.start || last < r.end - DAY, share: r.rev > 0 ? r.buy / r.rev : null }));
-      }
-
-      const SKIP_KEY = /^(staking|pool2|borrowed|vesting|offers|doublecounted|liquidstaking|ownTokens)$/i;
-      const STABLE = /USD|DAI|FRAX|GHO|EURC/i;
-      const MAJOR = /^(W?ETH|ETHEREUM|W?BTC|BITCOIN|WRAPPED-BITCOIN|CBBTC|TBTC|WSTETH|STETH|RETH|CBETH|WEETH)$/i;
-      const OWN = /^(OVER|THALES)$/i;
-      function parseTreasury(json) {
-        const chains = (json && json.chainTvls) || {};
-        const perChain = [];
-        for (const [key, v] of Object.entries(chains)) {
-          if (key.includes('-') || SKIP_KEY.test(key) || !v) continue;
-          const m = new Map();
-          if (Array.isArray(v.tokensInUsd) && v.tokensInUsd.length) {
-            for (const e of v.tokensInUsd) {
-              const b = { stable: 0, major: 0, other: 0 };
-              for (const [sym, raw] of Object.entries(e.tokens || {})) {
-                const val = Number(raw);
-                if (!ok(val) || OWN.test(sym)) continue;
-                if (STABLE.test(sym)) b.stable += val; else if (MAJOR.test(sym)) b.major += val; else b.other += val;
-              }
-              m.set(Math.floor(e.date / DAY), b);
-            }
-          } else if (Array.isArray(v.tvl)) {
-            for (const e of v.tvl) m.set(Math.floor(e.date / DAY), { stable: 0, major: 0, other: Number(e.totalLiquidityUSD) || 0 });
-          }
-          if (m.size) perChain.push(m);
-        }
-        const own = new Map();
-        const ownRows = (chains.OwnTokens && chains.OwnTokens.tvl) || [];
-        for (const e of ownRows) own.set(Math.floor(e.date / DAY), Number(e.totalLiquidityUSD) || 0);
-
-        const days = new Set();
-        perChain.forEach(m => m.forEach((_, d) => days.add(d)));
-        const sorted = [...days].sort((a, b) => a - b);
-        const lastSeen = perChain.map(() => null);
-        let lastOwn = null;
-        const out = [];
-        for (const d of sorted) {
-          const row = { t: d * DAY, stable: 0, major: 0, other: 0, own: null };
-          perChain.forEach((m, i) => { if (m.has(d)) lastSeen[i] = m.get(d); const b = lastSeen[i]; if (b) { row.stable += b.stable; row.major += b.major; row.other += b.other; } });
-          if (own.has(d)) lastOwn = own.get(d);
-          row.own = lastOwn;
-          out.push(row);
-        }
-        return out;
-      }
-      function valueAt(series, t, field) {
-        let found = null;
-        for (const p of series) { if (p.t <= t) found = p; else break; }
-        return found ? found[field] : null;
-      }
-
-      // ---------- Tooltip ----------
-      const tipEl = $('tooltip');
-      const tip = {
-        show(head, rows, x, y) {
-          tipEl.replaceChildren();
-          el('div', 't-head', head, tipEl);
-          for (const r of rows) {
-            const row = el('div', 'row', null, tipEl);
-            if (r.key) el('span', 'k ' + r.key, null, row);
-            el('strong', null, r.value, row);
-            el('span', 'n', r.name, row);
-          }
-          tipEl.hidden = false;
-          const w = tipEl.offsetWidth, h = tipEl.offsetHeight;
-          let left = x + 16, top = y - h - 14;
-          if (left + w > innerWidth - 8) left = x - w - 16;
-          if (left < 8) left = 8;
-          if (top < 8) top = y + 18;
-          tipEl.style.left = left + 'px';
-          tipEl.style.top = top + 'px';
-        },
-        hide() { tipEl.hidden = true; }
-      };
-      addEventListener('scroll', () => tip.hide(), { passive: true });
-
-      // ---------- Charts ----------
-      function empty(container, text) {
-        container.replaceChildren();
-        el('div', 'empty', text, container);
-      }
-
-      function lineChart(container, pts, ariaLabel, tipName) {
-        container.replaceChildren();
-        if (pts.length < 2) return empty(container, 'Not enough data for this range.');
-        const W = Math.max(280, container.clientWidth), H = container.clientHeight || 300;
-        const m = { top: 26, right: 72, bottom: 28, left: 50 };
-        const x0 = m.left, x1 = W - m.right, y0 = H - m.bottom, y1 = m.top;
-        const tMin = pts[0].t, tMax = pts[pts.length - 1].t;
-        const values = pts.map(p => p.v);
-        const sc = niceScale(Math.min(0, ...values), Math.max(...values), 4);
-        const X = t => x0 + (t - tMin) / (tMax - tMin) * (x1 - x0);
-        const Y = v => y0 - (v - sc.lo) / (sc.hi - sc.lo) * (y0 - y1);
-        const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': ariaLabel, tabindex: 0 });
-
-        for (const v of sc.ticks) {
-          const y = Math.round(Y(v)) + 0.5;
-          if (v !== 0) svg('line', { class: 'grid', x1: x0, x2: x1, y1: y, y2: y }, s);
-          svg('text', { class: 'tick', x: x0 - 10, y: y + 4, 'text-anchor': 'end' }, s).textContent = axisMoney(v);
-        }
-        const months = [];
-        for (let t = periodNext(periodStart(tMin, 'month'), 'month'); t <= tMax; t = periodNext(t, 'month')) months.push(t);
-        const every = Math.max(1, Math.ceil(months.length / Math.max(2, Math.floor((x1 - x0) / 70))));
-        months.forEach((t, i) => {
-          if ((months.length - 1 - i) % every) return;
-          svg('text', { class: 'tick', x: X(t), y: y0 + 19, 'text-anchor': 'middle' }, s).textContent = shortMonth(t);
-        });
-        for (const a of ANNOTATIONS) {
-          if (a.t <= tMin || a.t >= tMax) continue;
-          const g = svg('g', { class: 'annot' }, s);
-          const x = Math.round(X(a.t)) + 0.5;
-          svg('line', { x1: x, x2: x, y1: 18, y2: y0 }, g);
-          svg('text', { x: x + 5, y: 13 }, g).textContent = a.label;
-        }
-        const path = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`).join('');
-        const base = Y(Math.max(0, sc.lo)).toFixed(1);
-        svg('path', { class: 'area', d: `${path}L${X(tMax).toFixed(1)},${base}L${X(tMin).toFixed(1)},${base}Z` }, s);
-        svg('path', { class: 'line', d: path }, s);
-        const zy = Math.round(Y(0)) + 0.5;
-        svg('line', { class: 'baseline', x1: x0, x2: x1, y1: zy, y2: zy }, s);
-        const last = pts[pts.length - 1];
-        svg('circle', { class: 'dot', cx: X(last.t), cy: Y(last.v), r: 4 }, s);
-        svg('text', { class: 'end-label', x: X(last.t) + 10, y: Y(last.v) + 4 }, s).textContent = money(last.v);
-
-        const cross = svg('line', { class: 'cross', y1: y1, y2: y0, visibility: 'hidden' }, s);
-        const cdot = svg('circle', { class: 'dot', r: 4, visibility: 'hidden' }, s);
-        const hit = svg('rect', { x: x0, y: 0, width: x1 - x0, height: y0, fill: 'transparent' }, s);
-        let idx = pts.length - 1;
-        const show = (i, cx, cy) => {
-          idx = i;
-          const p = pts[i], x = X(p.t), y = Y(p.v);
-          cross.setAttribute('x1', x); cross.setAttribute('x2', x); cross.setAttribute('visibility', 'visible');
-          cdot.setAttribute('cx', x); cdot.setAttribute('cy', y); cdot.setAttribute('visibility', 'visible');
-          tip.show(fmtDate(p.t), [{ key: 's1', value: money(p.v), name: tipName }], cx, cy);
-        };
-        const hide = () => { cross.setAttribute('visibility', 'hidden'); cdot.setAttribute('visibility', 'hidden'); tip.hide(); };
-        const toClient = i => { const r = s.getBoundingClientRect(); return [r.left + X(pts[i].t) * r.width / W, r.top + Y(pts[i].v) * r.height / H]; };
-        hit.addEventListener('pointermove', e => {
-          const r = s.getBoundingClientRect();
-          const px = (e.clientX - r.left) * W / r.width;
-          show(nearest(pts, tMin + (px - x0) / (x1 - x0) * (tMax - tMin)), e.clientX, e.clientY);
-        });
-        hit.addEventListener('pointerleave', hide);
-        s.addEventListener('focus', () => show(idx, ...toClient(idx)));
-        s.addEventListener('blur', hide);
-        s.addEventListener('keydown', e => {
-          const step = e.shiftKey ? 30 : 1;
-          let i = idx;
-          if (e.key === 'ArrowLeft') i = Math.max(0, idx - step);
-          else if (e.key === 'ArrowRight') i = Math.min(pts.length - 1, idx + step);
-          else if (e.key === 'Home') i = 0;
-          else if (e.key === 'End') i = pts.length - 1;
-          else return;
-          e.preventDefault();
-          show(i, ...toClient(i));
-        });
-        container.appendChild(s);
-      }
-
-      function barPath(x, w, zero, y) {
-        const h = Math.abs(y - zero);
-        if (h < 0.5) return '';
-        const r = Math.min(4, h, w / 2);
-        if (y < zero) return `M${x},${zero}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${zero}Z`;
-        return `M${x},${zero}V${y - r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y - r}V${zero}Z`;
-      }
-
-      function barChart(container, periods, mode) {
-        container.replaceChildren();
-        if (!periods.length) return empty(container, 'No data for this range.');
-        const W = Math.max(280, container.clientWidth), H = container.clientHeight || 300;
-        const m = { top: 14, right: 8, bottom: 28, left: 50 };
-        const x0 = m.left, x1 = W - m.right, y0 = H - m.bottom, y1 = m.top;
-        const vals = periods.flatMap(p => [p.rev, p.buy]);
-        const sc = niceScale(Math.min(0, ...vals), Math.max(0, ...vals), 4);
-        const Y = v => y0 - (v - sc.lo) / (sc.hi - sc.lo) * (y0 - y1);
-        const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'group', 'aria-label': `House result and buybacks by ${mode === 'quarter' ? 'quarter' : 'month'}` });
-        for (const v of sc.ticks) {
-          const y = Math.round(Y(v)) + 0.5;
-          if (v !== 0) svg('line', { class: 'grid', x1: x0, x2: x1, y1: y, y2: y }, s);
-          svg('text', { class: 'tick', x: x0 - 10, y: y + 4, 'text-anchor': 'end' }, s).textContent = axisMoney(v);
-        }
-        const n = periods.length, band = (x1 - x0) / n;
-        const barW = Math.max(3, Math.min(24, (band - 12) / 2 - 1));
-        const groupW = barW * 2 + 2;
-        const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((x1 - x0) / 58))));
-        const zero = Y(0);
-        periods.forEach((p, i) => {
-          const cx = x0 + band * (i + 0.5);
-          const long = periodLabel(p.start, mode, true) + (p.partial ? ' (so far)' : '');
-          const label = `${long}: house result ${money(p.rev)}, buybacks ${money(p.buy)}${p.share != null ? `, ${pct(p.share)} of the result` : ''}`;
-          const g = svg('g', { class: 'group' + (p.partial ? ' partial' : ''), tabindex: 0, role: 'img', 'aria-label': label }, s);
-          svg('rect', { class: 'hit', x: cx - band / 2 + 1, y: y1 - 6, width: band - 2, height: y0 - y1 + 6, rx: 4 }, g);
-          const bx = cx - groupW / 2;
-          const pr = barPath(bx, barW, zero, Y(p.rev));
-          if (pr) svg('path', { class: 'bar b-rev', d: pr }, g);
-          const pb = barPath(bx + barW + 2, barW, zero, Y(p.buy));
-          if (pb) svg('path', { class: 'bar b-buy', d: pb }, g);
-          if ((n - 1 - i) % every === 0) svg('text', { class: 'tick', x: cx, y: y0 + 19, 'text-anchor': 'middle' }, s).textContent = periodLabel(p.start, mode, false);
-          const rows = [
-            { key: 's1', value: money(p.rev), name: 'House result' },
-            { key: 's2', value: money(p.buy), name: 'Buybacks' }
-          ];
-          if (p.share != null) rows.push({ value: pct(p.share), name: 'of the result bought back' });
-          g.addEventListener('pointermove', e => tip.show(long, rows, e.clientX, e.clientY));
-          g.addEventListener('pointerleave', () => tip.hide());
-          g.addEventListener('focus', () => { const r = g.getBoundingClientRect(); tip.show(long, rows, r.left + r.width / 2, r.top + 12); });
-          g.addEventListener('blur', () => tip.hide());
-        });
-        const zy = Math.round(zero) + 0.5;
-        svg('line', { class: 'baseline', x1: x0, x2: x1, y1: zy, y2: zy }, s);
-        container.appendChild(s);
-      }
-
-      function table(container, head, rows) {
-        container.replaceChildren();
-        const t = el('table', null, null, container);
-        const tr = el('tr', null, null, el('thead', null, null, t));
-        head.forEach(h => el('th', null, h, tr));
-        const body = el('tbody', null, null, t);
-        rows.forEach(r => { const row = el('tr', null, null, body); r.forEach(c => el('td', null, c, row)); });
-      }
-
-      // ---------- Tiles and checks ----------
-      function tile(parent, label, value, opts = {}) {
-        const t = el('div', 'tile', null, parent);
-        el('p', 'label', label, t);
-        el('p', 'value', value, t);
-        if (opts.delta != null && ok(opts.delta)) {
-          const up = opts.delta >= 0;
-          const d = el('p', 'delta ' + (up ? 'up' : 'down'), `${up ? '▲' : '▼'} ${pct(opts.delta, true)} `, t);
-          el('span', null, opts.deltaLabel, d);
-        }
-        if (opts.note) el('p', 'note', opts.note, t);
-      }
-      function grade(value, t) {
-        if (!ok(value)) return 'unknown';
-        return value >= t.good ? 'good' : value >= t.watch ? 'watch' : 'alert';
-      }
-      const GRADE = { good: ['✓', 'Healthy'], watch: ['!', 'Watch'], alert: ['✕', 'Alert'], unknown: ['?', 'No data'] };
-      function check(parent, state, title, text) {
-        const li = el('li', 'check ' + state, null, parent);
-        el('span', 'badge', GRADE[state][0], li).setAttribute('aria-hidden', 'true');
-        const body = el('div', null, null, li);
-        const h = el('p', 'check-title', null, body);
-        el('strong', null, GRADE[state][1], h);
-        h.appendChild(document.createTextNode(` · ${title}`));
-        el('p', 'check-text', text, body);
-      }
-
-      // ---------- State and rendering ----------
-      const state = { range: 365, mode: 'month', rev: null, buy: null, treasury: null, price: null, loaded: false };
-
-      function renderSummary() {
-        const { rev, buy, treasury, price } = state;
-        const tiles = $('tiles');
-        tiles.replaceChildren();
-        const lastT = rev && rev.length ? rev[rev.length - 1].t : null;
-        const mcap = price ? price.mcap : null;
-
-        tile(tiles, 'OVER price', price && ok(price.usd) ? `$${price.usd.toFixed(4)}` : '—', { delta: price ? price.change24h : null, deltaLabel: '24h' });
-        tile(tiles, 'Market cap', money(mcap), { note: 'Same as fully diluted value: no tokens left to unlock.' });
-
-        let stablesNow = null, stables30 = null, change30 = null;
-        if (treasury && treasury.length) {
-          const tNow = treasury[treasury.length - 1].t;
-          stablesNow = treasury[treasury.length - 1].stable;
-          stables30 = valueAt(treasury, tNow - 30 * DAY, 'stable');
-          change30 = stables30 > 0 ? stablesNow / stables30 - 1 : null;
-        }
-        tile(tiles, 'Treasury stablecoins', money(stablesNow), { delta: change30, deltaLabel: '30 days' });
-
-        let rev30 = null, buy30 = null, rev90 = null, buy90 = null, rev365 = null;
-        if (lastT != null) {
-          rev30 = sumWindow(rev, lastT, 30); rev90 = sumWindow(rev, lastT, 90); rev365 = sumWindow(rev, lastT, 365);
-          if (buy) { buy30 = sumWindow(buy, lastT, 30); buy90 = sumWindow(buy, lastT, 90); }
-        }
-        tile(tiles, 'House result, 30 days', money(rev30), { note: ok(rev365) ? `${money(rev365)} over the last year` : null });
-        tile(tiles, 'Buybacks, 30 days', money(buy30), { note: ok(buy30) && ok(rev30) ? (rev30 > 0 ? `${pct(buy30 / rev30)} of the house result` : 'The house result was negative') : null });
-        const yld = ok(buy90) && mcap > 0 ? (buy90 * 365 / 90) / mcap : null;
-        tile(tiles, 'Buyback yield', pct(yld), { note: 'Last 90 days of buybacks, annualized, divided by market cap.' });
-
-        const checks = $('checks');
-        checks.replaceChildren();
-        const tb = THRESHOLDS.bankroll30d;
-        check(checks, grade(change30, tb), 'House bankroll',
-          ok(change30)
-            ? `Treasury stablecoins are ${pct(change30, true)} over 30 days, at ${money(stablesNow)}. Watch below ${whole(tb.good)}, alert below ${whole(tb.watch)}.`
-            : 'Treasury data didn’t load.');
-
-        const quarters = rev ? aggregate(rev, buy || [], 'quarter').filter(q => !q.partial) : [];
-        const tq = THRESHOLDS.quarter;
-        if (quarters.length >= 2) {
-          const a = quarters[quarters.length - 1], b = quarters[quarters.length - 2];
-          const change = b.rev > 0 ? a.rev / b.rev - 1 : null;
-          check(checks, a.rev <= 0 ? 'alert' : grade(change, tq), 'Quarterly house result',
-            `${periodLabel(a.start, 'quarter', true)} brought in ${money(a.rev)}, ${ok(change) ? pct(change, true) : 'n/a'} against ${money(b.rev)} in ${periodLabel(b.start, 'quarter', true)}. Watch on any drop, alert below ${whole(tq.watch)}.`);
-        } else {
-          check(checks, 'unknown', 'Quarterly house result', 'Not enough revenue history loaded.');
-        }
-
-        const ts = THRESHOLDS.buybackShare;
-        if (ok(rev90) && ok(buy90)) {
-          const share = rev90 > 0 ? buy90 / rev90 : null;
-          const plain = v => `${Math.round(v * 100)}%`;
-          let shareState = rev90 <= 0 ? 'alert' : grade(share, ts), shareText;
-          if (rev90 <= 0) shareText = `The house lost ${money(-rev90)} over the last 90 days, while ${money(buy90)} went to buybacks.`;
-          else if (share > 1) { shareState = 'watch'; shareText = `Buybacks (${money(buy90)}) were larger than the ${money(rev90)} house result over the last 90 days, so the treasury is topping them up. That can’t last.`; }
-          else shareText = `Buybacks took ${pct(share)} of the ${money(rev90)} house result over the last 90 days. Healthy from ${plain(ts.good)}, alert below ${plain(ts.watch)}.`;
-          check(checks, shareState, 'Share bought back', shareText);
-        } else {
-          check(checks, 'unknown', 'Share bought back', 'Revenue or buyback data didn’t load.');
-        }
-
-        if (treasury && treasury.length) {
-          const lastRow = treasury[treasury.length - 1];
-          const extras = [];
-          if (lastRow.major > 0) extras.push(`${money(lastRow.major)} in ETH and BTC`);
-          if (ok(lastRow.own) && lastRow.own > 0) extras.push(`${money(lastRow.own)} in its own OVER`);
-          if (lastRow.other > 1000) extras.push(`${money(lastRow.other)} in other tokens`);
-          if (extras.length) {
-            $('treasury-sub').textContent = `Stablecoins held by the treasury across chains. Since the treasury became the only liquidity provider, this is the house’s bankroll, so losses show up here first. It also holds ${extras.join(', ')}.`;
-          }
-        }
-      }
-
-      function cutoff() {
-        return state.range === 'all' ? -Infinity : Date.now() / 1000 - state.range * DAY;
-      }
-
-      function renderCharts() {
-        if (!state.loaded) return;
-        tip.hide();
-        const from = cutoff();
-        if (state.treasury) {
-          const pts = state.treasury.filter(p => p.t >= from).map(p => ({ t: p.t, v: p.stable }));
-          const latest = pts.length ? pts[pts.length - 1].v : null;
-          lineChart($('treasury-chart'), pts, `Treasury stablecoins over time, now ${money(latest)}`, 'Stablecoins');
-          const monthly = new Map();
-          pts.forEach(p => monthly.set(periodStart(p.t, 'month'), p));
-          table($('treasury-table'), ['Month (last reading)', 'Stablecoins'],
-            [...monthly.values()].reverse().map(p => [fmtDate(p.t), money(p.v)]));
-        } else {
-          empty($('treasury-chart'), 'Treasury data didn’t load.');
-        }
-        if (state.rev) {
-          const periods = aggregate(state.rev, state.buy || [], state.mode).filter(p => p.end > from);
-          barChart($('rev-chart'), periods, state.mode);
-          table($('rev-table'), [state.mode === 'quarter' ? 'Quarter' : 'Month', 'House result', 'Buybacks', 'Share bought back'],
-            [...periods].reverse().map(p => [periodLabel(p.start, state.mode, true) + (p.partial ? ' (so far)' : ''), money(p.rev), money(p.buy), p.share != null ? pct(p.share) : '—']));
-          const done = periods.filter(p => !p.partial);
-          const lastDone = done[done.length - 1];
-          $('legend-rev').textContent = lastDone ? `${money(lastDone.rev)} in ${periodLabel(lastDone.start, state.mode, false)}` : '';
-          $('legend-buy').textContent = lastDone ? `${money(lastDone.buy)}${lastDone.share != null ? ` (${pct(lastDone.share)})` : ''}` : '';
-        } else {
-          empty($('rev-chart'), 'Revenue data didn’t load.');
-        }
-      }
-
-      document.querySelectorAll('.seg').forEach(group => {
-        group.addEventListener('click', e => {
-          const btn = e.target.closest('button');
-          if (!btn) return;
-          group.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
-          const v = btn.dataset.value;
-          if (group.dataset.control === 'range') state.range = v === 'all' ? 'all' : Number(v);
-          else state.mode = v;
-          renderCharts();
-        });
-      });
-
-      let frame = 0, lastWidth = 0;
-      new ResizeObserver(entries => {
-        const w = Math.round(entries[0].contentRect.width);
-        if (w === lastWidth) return;
-        lastWidth = w;
-        cancelAnimationFrame(frame);
-        frame = requestAnimationFrame(renderCharts);
-      }).observe($('rev-chart'));
-
-      // ---------- Loading ----------
-      async function getJSON(url, ms = 45000) {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), ms);
-        try {
-          const res = await fetch(url, { signal: ctrl.signal });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return await res.json();
-        } finally { clearTimeout(timer); }
-      }
-      async function getPrice(treasuryPromise) {
-        try {
-          const j = await getJSON(API.price, 15000);
-          const o = j && j.overtime;
-          if (o && ok(o.usd)) return { usd: o.usd, mcap: o.usd_market_cap || null, change24h: ok(o.usd_24h_change) ? o.usd_24h_change / 100 : null, source: 'CoinGecko' };
-          throw new Error('no price');
-        } catch {
-          const j = await getJSON(API.priceAlt, 15000);
-          const c = j && j.coins && j.coins['coingecko:overtime'];
-          let mcap = null;
-          try { const t = await treasuryPromise; if (ok(Number(t && t.mcap))) mcap = Number(t.mcap); } catch { /* No fallback market cap. */ }
-          if (c && ok(c.price)) return { usd: c.price, mcap, change24h: null, source: 'DefiLlama' };
-          throw new Error('no price');
-        }
-      }
-
-      async function load() {
-        const treasuryP = getJSON(API.treasury);
-        const [rev, buy, treasury, price] = await Promise.allSettled([getJSON(API.revenue), getJSON(API.buybacks), treasuryP, getPrice(treasuryP)]);
-        const failed = [];
-        if (rev.status === 'fulfilled') state.rev = dailySeries(rev.value); else failed.push('house result');
-        if (buy.status === 'fulfilled') state.buy = dailySeries(buy.value); else failed.push('buybacks');
-        if (treasury.status === 'fulfilled') { const t = parseTreasury(treasury.value); state.treasury = t.length ? t : null; if (!t.length) failed.push('treasury'); } else failed.push('treasury');
-        if (price.status === 'fulfilled') state.price = price.value; else failed.push('price');
-        if (state.price && !(state.price.mcap > 0) && treasury.status === 'fulfilled' && Number(treasury.value && treasury.value.mcap) > 0) state.price.mcap = Number(treasury.value.mcap);
-        state.loaded = true;
-
-        renderSummary();
-        renderCharts();
-
-        const status = $('status');
-        const lastT = state.rev && state.rev.length ? state.rev[state.rev.length - 1].t : null;
-        const parts = [];
-        if (lastT) parts.push(`Daily figures run to ${fmtDate(lastT)}.`);
-        if (failed.length) {
-          parts.push(`Couldn’t load: ${failed.join(', ')}. Reload to try again.`);
-          status.classList.add('error');
-        }
-        status.textContent = parts.join(' ') || 'Live data loaded.';
-        $('updated').textContent = ` (${new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})`;
-      }
-      load();
-    })();
-    </script>
   </body>
 </html>

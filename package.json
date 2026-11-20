@@ -1,0 +1,9 @@
+{
+  "name": "overwatch",
+  "private": true,
+  "type": "module",
+  "description": "OVER watch: a live tracker for Overtime ($OVER).",
+  "scripts": {
+    "snapshot": "node scripts/snapshot.mjs"
+  }
+}
