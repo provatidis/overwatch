@@ -1,5 +1,5 @@
 // OVER watch page. Reads the daily snapshot (data/latest.json) and a live price.
-import { ANNOTATIONS, CHAIN_NAMES } from './lib/config.js';
+import { ANNOTATIONS, CHAIN_NAMES, EXPLORERS, OVER, DEAD } from './lib/config.js';
 import { money, tokens, axisMoney, axisTokens, pct, fmtDate, shortMonth, ok } from './lib/format.js';
 import {
   DAY, dailySeries, fromPairs, parseTreasury, treasuryFromRows, aggregate, periodStart, periodNext,
@@ -408,14 +408,43 @@ function renderSupply() {
     empty($('supply-chart'), `History starts ${hist.length ? fmtDate(hist[0].t) : 'with the first snapshot'} and adds a reading every day. The chart appears from the second day.`, 'history-note');
   }
 
-  const parts = [];
-  if (ok(state.data.treasuryOwnUsd) && ok(price) && price > 0) {
-    parts.push(`DefiLlama values the treasury’s own OVER at ${money(state.data.treasuryOwnUsd)}, about ${tokens(state.data.treasuryOwnUsd / price)} tokens. The treasury figure above only counts the wallets listed in lib/config.js, so a big gap between the two means a treasury wallet is missing from that list.`);
+  // DefiLlama's "own tokens" figure versus what the chain data allows.
+  const eth = (sup.chains || {}).ethereum;
+  const notes = [];
+  if (ok(state.data.treasuryOwnUsd) && ok(price) && price > 0 && eth) {
+    const implied = state.data.treasuryOwnUsd / price;
+    const outside = eth.total - eth.locked - eth.dead;
+    if (implied > outside * 1.05) {
+      notes.push(`DefiLlama values the treasury’s own OVER at ${money(state.data.treasuryOwnUsd)}, about ${tokens(implied)} tokens. Only ${tokens(outside)} OVER on Ethereum sits outside the bridge pool and the burn address, so DefiLlama’s figure must include the ${tokens(eth.locked)} locked in Chainlink’s bridge pool. Those back the tokens circulating on Optimism, Arbitrum and Base and don’t belong to the treasury.`);
+    } else {
+      notes.push(`DefiLlama values the treasury’s own OVER at ${money(state.data.treasuryOwnUsd)}, about ${tokens(implied)} tokens. The treasury figure above only counts the wallets listed in lib/config.js.`);
+    }
   }
-  $('supply-note').textContent = parts.join(' ');
+  $('supply-note').textContent = notes.join(' ');
 
   const rows = Object.entries(sup.chains || {}).map(([chain, c]) => [chainName(chain), tokens(c.total), tokens(c.locked), tokens(c.dead), tokens(c.treasury), tokens(c.total - c.locked - c.dead)]);
   table($('supply-table'), ['Chain', 'Contract supply', 'Locked in bridge', 'Burn addresses', 'Treasury', 'Circulating'], rows);
+
+  // Largest holders that aren't the bridge, a burn address or a listed treasury wallet.
+  const skip = new Set([...DEAD, ...OVER.treasury, ...Object.values(OVER.locked).flat()].map(a => a.toLowerCase()));
+  const holders = [];
+  for (const [chain, c] of Object.entries(sup.chains || {})) {
+    for (const h of c.holders || []) {
+      if (!h.address || skip.has(h.address) || (c.lockedBy || []).some(l => l.address === h.address)) continue;
+      holders.push({ ...h, chain });
+    }
+  }
+  holders.sort((a, b) => b.tokens - a.tokens);
+  const top = holders.slice(0, 8);
+  const wrap = $('holders-table');
+  if (top.length) {
+    table(wrap, ['Holder', 'Chain', 'OVER', 'Share of circulating'], top.map(h => [
+      { href: (EXPLORERS[h.chain] || '') + h.address, text: `${h.address.slice(0, 6)}…${h.address.slice(-4)}${h.name ? ` (${h.name.replace(/Proxy$/, '')})` : ''}` },
+      chainName(h.chain), tokens(h.tokens), pct(h.tokens / sup.circulating)
+    ]));
+  } else {
+    empty(wrap, 'Holder lists weren’t available in this snapshot.');
+  }
 }
 
 function renderLiquidity() {

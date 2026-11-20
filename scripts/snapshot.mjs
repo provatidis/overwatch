@@ -98,7 +98,10 @@ async function supplySnapshot(price) {
     c.total = await totalSupply(chain, token);
     for (const d of DEAD) c.dead += await balanceOf(chain, token, d).catch(() => 0);
     for (const t of treasurySet) c.treasury += await balanceOf(chain, token, t).catch(() => 0);
-    c.holders = await step(`holders ${chain}`, () => topHolders(chain, token));
+    // Holders are needed on Ethereum to find the bridge pool; elsewhere they're a bonus.
+    c.holders = chain === 'ethereum'
+      ? await step(`holders ${chain}`, () => topHolders(chain, token))
+      : await topHolders(chain, token).catch(() => null);
     const lockedAddrs = new Set((OVER.locked[chain] || []).map(lower));
     for (const h of c.holders || []) if (h.contract && h.name && LOCKED_NAME.test(h.name)) lockedAddrs.add(h.address);
     for (const a of lockedAddrs) {
@@ -301,6 +304,14 @@ async function main() {
   history.sort((a, b) => a.date.localeCompare(b.date));
 
   await writeFile(path.join(OUT, 'latest.json'), JSON.stringify(next));
+  if (treJ) {
+    const last = Object.fromEntries(Object.entries(treJ.chainTvls || {}).map(([k, v]) => [k, {
+      tvl: Array.isArray(v.tvl) && v.tvl.length ? v.tvl[v.tvl.length - 1] : null,
+      tokens: Array.isArray(v.tokensInUsd) && v.tokensInUsd.length ? v.tokensInUsd[v.tokensInUsd.length - 1] : null,
+      days: Array.isArray(v.tokensInUsd) ? v.tokensInUsd.length : 0
+    }]));
+    await writeFile(path.join(OUT, 'treasury-debug.json'), JSON.stringify({ current: treJ.currentChainTvls || null, last }, null, 1));
+  }
   await writeFile(path.join(OUT, 'history.json'), JSON.stringify(history, null, 1));
 
   const sent = await step('alerts', () => sendAlerts(prev, next));
