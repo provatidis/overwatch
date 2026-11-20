@@ -8,8 +8,8 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { OVER, DEAD, LOCKED_NAME, HOLDER_VALUE } from '../lib/config.js';
-import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
+import { OVER, DEAD, LOCKED_NAME, HOLDER_VALUE, THRESHOLDS, CHAIN_NAMES } from '../lib/config.js';
+import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
 import { money, tokens, fmtDate } from '../lib/format.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -108,9 +108,13 @@ async function supplySnapshot(price) {
   const lower = s => s.toLowerCase();
   const treasurySet = [...new Set(OVER.treasury.map(lower))];
   for (const [chain, token] of Object.entries(OVER.tokens)) {
-    const c = { total: await totalSupply(chain, token), dead: 0, locked: 0, treasury: 0, lockedBy: [], holders: null };
+    const c = { total: await totalSupply(chain, token), dead: 0, locked: 0, treasury: 0, treasuryBy: {}, lockedBy: [], holders: null };
     for (const d of DEAD) c.dead += await balanceOf(chain, token, d);
-    for (const t of treasurySet) c.treasury += await balanceOf(chain, token, t);
+    for (const t of treasurySet) {
+      const bal = await balanceOf(chain, token, t);
+      c.treasuryBy[t] = bal;
+      c.treasury += bal;
+    }
     // Holders are needed on Ethereum to find the bridge pool; elsewhere they're a bonus.
     c.holders = chain === 'ethereum'
       ? await step(`holders ${chain}`, () => topHolders(chain, token))
@@ -159,6 +163,37 @@ async function poolSnapshot() {
   if (!(out.total > 0) || out.total > 50e6) throw new Error(`pool total ${money(out.total)} looks wrong`);
   out.total = Math.round(out.total);
   return out;
+}
+
+// OVER held by the OVER-collateral betting pools (the current round's pool contract on each chain).
+async function overPoolSnapshot() {
+  const out = { chains: {}, total: 0 };
+  for (const [chain, pool] of Object.entries(OVER.overPools)) {
+    const round = await ethCall(chain, pool, '0x146ca531');
+    const roundPool = '0x' + (await ethCall(chain, pool, '0x4651f080' + round.toString(16).padStart(64, '0'))).toString(16).padStart(40, '0');
+    if (/^0x0+$/.test(roundPool)) throw new Error(`${chain}: no OVER pool contract for round ${round}`);
+    const over = await balanceOf(chain, OVER.tokens[chain], roundPool);
+    out.chains[chain] = { round: Number(round), roundPool, over: Math.round(over) };
+    out.total += over;
+  }
+  if (out.total < 0 || out.total > OVER.maxSupply) throw new Error(`OVER pool total ${tokens(out.total)} looks wrong`);
+  out.total = Math.round(out.total);
+  return out;
+}
+
+// Treasury wallets whose OVER balance moved by 10K or more since the previous good reading.
+function walletMoves(prevSupply, supply) {
+  if (!prevSupply || !supply) return [];
+  const moves = [];
+  for (const [chain, c] of Object.entries(supply.chains || {})) {
+    const before = prevSupply.chains && prevSupply.chains[chain] && prevSupply.chains[chain].treasuryBy;
+    if (!before) continue;
+    for (const [addr, bal] of Object.entries(c.treasuryBy || {})) {
+      const d = bal - (before[addr] ?? 0);
+      if (Math.abs(d) >= 10_000) moves.push(`${addr.slice(0, 6)}…${addr.slice(-4)} on ${CHAIN_NAMES[chain] || chain}: ${d > 0 ? '+' : '−'}${tokens(Math.abs(d))} OVER`);
+    }
+  }
+  return moves;
 }
 
 // ---------- Market data ----------
@@ -263,7 +298,8 @@ async function sendAlerts(prev, next) {
     if (RANK[c.state] < 0 || RANK[before.state] == null || RANK[before.state] < 0 || before.state === c.state) continue;
     if (RANK[c.state] > RANK[before.state]) {
       const title = `${c.title}: ${GRADE[before.state][1]} → ${GRADE[c.state][1]}`;
-      await gh('/issues', 'POST', { title: `[OVER watch] ${title}`, body: `${c.text}\n\n[Open OVER watch](${PAGE_URL})\n\n${marker('check:' + c.id)}` });
+      const detail = next.alertDetail && next.alertDetail[c.id] ? `\n\n${next.alertDetail[c.id]}` : '';
+      await gh('/issues', 'POST', { title: `[OVER watch] ${title}`, body: `${c.text}${detail}\n\n[Open OVER watch](${PAGE_URL})\n\n${marker('check:' + c.id)}` });
       sent.push(title);
     } else if (c.state === 'good') {
       for (const issue of openIssues.filter(i => (i.body || '').includes(marker('check:' + c.id)))) {
@@ -275,6 +311,15 @@ async function sendAlerts(prev, next) {
   }
 
   // New votes, only when both today's and the previous governance reads are fresh.
+  // A buyback raise isn't a worse state, so it gets its own one-off alert.
+  const rateNow = next.checks.find(c => c.id === 'rate');
+  const rateBefore = (prev.checks || []).find(c => c.id === 'rate');
+  const raised = THRESHOLDS.buybackRate.raised;
+  if (rateNow && rateBefore && !rateNow.stale && !rateBefore.stale && rateNow.value >= raised && !(rateBefore.value >= raised)) {
+    await gh('/issues', 'POST', { title: '[OVER watch] Buyback rate up', body: `${rateNow.text}\n\n[Open OVER watch](${PAGE_URL})\n\n${marker('rate-up:' + new Date().toISOString().slice(0, 10))}` });
+    sent.push('buyback rate up');
+  }
+
   // New votes: only proposals created after the last good governance read, so a gap or an odd
   // reply can never make old proposals look new.
   const since = prev.sources && prev.sources.governance && prev.sources.governance.asOf;
@@ -348,7 +393,16 @@ async function main() {
   let priceData = price;
   if (priceData && !(priceData.mcap > 0) && treJ && Number(treJ.mcap) > 0) priceData.mcap = Number(treJ.mcap);
   priceData = settle('price', priceData, prev && prev.price);
-  const supply = settle('supply', await step('supply', () => supplySnapshot(priceData && priceData.usd)), prev && prev.supply);
+  const supplyFresh = await step('supply', () => supplySnapshot(priceData && priceData.usd));
+  const overPools = settle('overPools', await step('OVER pools', overPoolSnapshot), prev && prev.overPools);
+  // The house's own OVER (treasury wallets + OVER pools) isn't free float.
+  if (supplyFresh && sources.overPools.ok) {
+    supplyFresh.overPools = overPools.total;
+    supplyFresh.house = supplyFresh.treasury + overPools.total;
+    supplyFresh.float = supplyFresh.circulating - supplyFresh.house;
+    supplyFresh.floatUsd = priceData && priceData.usd ? supplyFresh.float * priceData.usd : null;
+  }
+  const supply = settle('supply', supplyFresh, prev && prev.supply);
   const liq = settle('liquidity', liquidity, prev && prev.liquidity);
   const gov = settle('governance', governance, prev && prev.governance);
 
@@ -367,6 +421,8 @@ async function main() {
     circulating: fresh('supply') ? Math.round(supply.circulating) : null,
     burned: fresh('supply') ? Math.round(supply.burned) : null,
     treasuryOver: fresh('supply') ? Math.round(supply.treasury) : null,
+    poolOver: fresh('overPools') ? overPools.total : null,
+    houseOver: fresh('supply') && fresh('overPools') ? Math.round(supply.treasury + overPools.total) : null,
     liquidityUsd: fresh('liquidity') ? liq.totalUsd : null,
     volume24h: fresh('liquidity') ? liq.volume24h : null,
     checks: {}
@@ -380,7 +436,7 @@ async function main() {
   const rev = revRows ? completeDays(fromRows(revRows), now) : null;
   const buy = buyRows ? completeDays(fromRows(buyRows), now) : null;
   const readings = readingsFromHistory(history);
-  const stats = computeStats({ rev, buy, treasury: treasuryRows ? treasuryRows.map(([t, stable]) => ({ t, stable })) : null, readings });
+  const stats = computeStats({ rev, buy, treasury: treasuryRows ? treasuryRows.map(([t, stable]) => ({ t, stable })) : null, readings, overReadings: overReadingsFromHistory(history) });
   const checks = computeChecks(stats).map(c => ({ ...c, stale: c.sources.some(n => !sources[n] || !sources[n].ok) }));
   row.checks = Object.fromEntries(checks.map(c => [c.id, c.stale ? `${c.state} (stale)` : c.state]));
   const flows = computeFlows(readings, rev, buy);
@@ -393,13 +449,15 @@ async function main() {
     buybacks: buyRows,
     treasury: treasuryRows,
     pools,
+    overPools,
     treasuryOwnUsd: ownUsd,
     treasuryOwnSymbols: treJ ? ownSymbols(treJ) : (prev ? prev.treasuryOwnSymbols : null),
     supply,
     liquidity: liq,
     governance: gov,
     checks,
-    errors
+    errors,
+    alertDetail: { houseOver: fresh('supply') ? (moves => moves.length ? `Treasury wallets that moved since the last reading:\n- ${moves.join('\n- ')}` : null)(walletMoves(prev && prev.supply, supply)) : null }
   };
 
   await writeFile(path.join(OUT, 'latest.json'), JSON.stringify(next));
@@ -417,6 +475,7 @@ async function main() {
   console.log(`Snapshot ${date}: ${checks.map(c => `${c.id}=${c.state}${c.stale ? ' (stale)' : ''}`).join(', ')}`);
   if (stats.lastT) console.log(`Completed days through ${fmtDate(stats.lastT)}: 30d result ${money(stats.rev30)}, buybacks ${money(stats.buy30)}`);
   if (supply) console.log(`Supply${fresh('supply') ? '' : ' (carried over)'}: circulating ${Math.round(supply.circulating)}, treasury ${Math.round(supply.treasury)}`);
+  if (overPools) console.log(`OVER pools${fresh('overPools') ? '' : ' (carried over)'}: ${tokens(overPools.total)} OVER (${Object.entries(overPools.chains).map(([c, v]) => `${c} ${tokens(v.over)} in round ${v.round}`).join(', ')})`);
   if (pools) console.log(`Betting pools${fresh('pools') ? '' : ' (carried over)'}: ${money(pools.total)} idle USDC (${Object.entries(pools.chains).map(([c, v]) => `${c} ${money(v.usdc)} in round ${v.round}`).join(', ')})`);
   if (flows.ready) console.log(`Money in/out over ${flows.days} days: result ${money(flows.result)}, buybacks ${money(flows.buys)}, stablecoins ${money(flows.change)}, other ${money(flows.other)}`);
   if (liq) console.log(`Liquidity: ${money(liq.totalUsd)} in ${liq.pools.length} pools`);

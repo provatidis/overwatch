@@ -33,11 +33,14 @@ The reconciliation compares, over up to 30 days of those readings, what the hous
 
 ## Alerts
 
-When a thesis check gets worse (Healthy → Watch → Alert), the job opens an issue in this repo, and it closes that issue when the check is Healthy again. Checks running on stale data, or not yet comparable, never alert. It also opens an issue for every new Snapshot vote, saying who votes on it. GitHub emails you about new issues in your own repos, so watching the repo is enough.
+Five checks run every day: the house bankroll, the house-result trend, the share of the result bought back, the **buyback rate** (last 7 days against the 30 before; a cut or a pause turns it amber or red) and **treasury OVER** (OVER held by the treasury wallets plus the OVER betting pools, over 7 days). OVER moving between the wallets and the pools doesn't count as a change.
+
+When a thesis check gets worse (Healthy → Watch → Alert), the job opens an issue in this repo, and it closes that issue when the check is Healthy again. Checks running on stale data, or not yet comparable, never alert. A treasury OVER alert lists the wallets that moved and by how much. A buyback raise of 20% or more gets its own one-off issue. It also opens an issue for every new Snapshot vote, saying who votes on it. GitHub emails you about new issues in your own repos, so watching the repo is enough.
 
 ## Tuning
 
 - Check thresholds: `THRESHOLDS` in `lib/config.js`.
+- Betting pools read onchain: `OVER.bettingPools` (USDC) and `OVER.overPools` (OVER) in `lib/config.js`.
 - Treasury wallets counted in the supply panel: `OVER.treasury` in `lib/config.js`. If the panel's note shows a big gap between DefiLlama's own-token value and the treasury figure, a wallet is missing.
 - Run the job by hand: Actions → Daily snapshot → Run workflow.
 

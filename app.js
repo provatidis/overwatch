@@ -2,7 +2,7 @@
 import { ANNOTATIONS, CHAIN_NAMES, EXPLORERS, OVER, DEAD, METHOD_CHANGE } from './lib/config.js';
 import { money, tokens, axisMoney, axisTokens, pct, fmtDate, shortMonth, ok } from './lib/format.js';
 import {
-  DAY, dailySeries, fromPairs, parseTreasury, treasuryFromRows, readingsFromHistory, completeDays, aggregate, periodStart,
+  DAY, dailySeries, fromPairs, parseTreasury, treasuryFromRows, readingsFromHistory, overReadingsFromHistory, completeDays, aggregate, periodStart,
   periodNext, periodLabel, computeStats, computeChecks, computeFlows, FLOWS_MIN_DAYS, voterGroup, GRADE
 } from './lib/metrics.js';
 
@@ -336,14 +336,14 @@ function check(parent, c) {
 // ---------- State ----------
 const state = { range: 365, mode: 'month', data: null, now: null, rev: null, buy: null, treasury: null, price: null, history: [], loaded: false };
 
-const SOURCE_NAMES = { revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
+const SOURCE_NAMES = { revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', overPools: 'OVER pools', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
 const staleSources = () => Object.entries((state.data && state.data.sources) || {}).filter(([, v]) => !v.ok);
 const sourceDate = name => { const v = state.data && state.data.sources && state.data.sources[name]; return v && v.asOf ? fmtDate(v.asOf) : 'an earlier day'; };
 
 function renderSummary() {
   const { rev, buy, price } = state;
   const readings = readingsFromHistory(state.history);
-  const s = computeStats({ rev, buy, treasury: state.treasury, readings });
+  const s = computeStats({ rev, buy, treasury: state.treasury, readings, overReadings: overReadingsFromHistory(state.history) });
   const end = s.lastT != null ? fmtDate(s.lastT) : null;
 
   // The headline: earnings and buybacks for the same dated period.
@@ -481,7 +481,11 @@ function renderSupply() {
     ? `${tokens(recent[recent.length - 1].v - recent[0].v)} burned since ${fmtDate(recent[0].t)}${ok(price) ? `, about ${money((recent[recent.length - 1].v - recent[0].v) * price)}` : ''}`
     : `${pct(sup.burned / sup.max)} of the maximum. Daily burn shows from the second snapshot.`;
   tile(tiles, 'Burned so far', tokens(sup.burned), { unit: 'OVER', note: burnNote });
-  tile(tiles, 'Held by the treasury', tokens(sup.treasury), { unit: 'OVER', note: `${pct(sup.treasury / sup.circulating)} of circulating supply` });
+  if (ok(sup.house)) {
+    tile(tiles, 'Held by the house', tokens(sup.house), { unit: 'OVER', note: `${pct(sup.house / sup.circulating)} of circulating: ${tokens(sup.treasury)} in treasury wallets, ${tokens(sup.overPools)} in the OVER betting pools` });
+  } else {
+    tile(tiles, 'Held by the treasury', tokens(sup.treasury), { unit: 'OVER', note: `${pct(sup.treasury / sup.circulating)} of circulating supply. The OVER betting pools didn’t load.` });
+  }
   tile(tiles, 'Free float', tokens(sup.float), { unit: 'OVER', note: ok(price) ? `Worth ${money(sup.float * price)} at today’s price` : null });
 
   const hist = state.history.filter(h => ok(h.circulating)).map(h => ({ t: Date.parse(h.date) / 1000, v: h.circulating }));
@@ -505,8 +509,9 @@ function renderSupply() {
   }
   $('supply-note').textContent = notes.join(' ');
 
-  const rows = Object.entries(sup.chains || {}).map(([chain, c]) => [chainName(chain), tokens(c.total), tokens(c.locked), tokens(c.dead), tokens(c.treasury), tokens(c.total - c.locked - c.dead)]);
-  table($('supply-table'), ['Chain', 'Contract supply', 'Locked in bridge', 'Burn addresses', 'Treasury', 'Circulating'], rows);
+  const op = (state.data.overPools && state.data.overPools.chains) || {};
+  const rows = Object.entries(sup.chains || {}).map(([chain, c]) => [chainName(chain), tokens(c.total), tokens(c.locked), tokens(c.dead), tokens(c.treasury), op[chain] ? tokens(op[chain].over) : '—', tokens(c.total - c.locked - c.dead)]);
+  table($('supply-table'), ['Chain', 'Contract supply', 'Locked in bridge', 'Burn addresses', 'Treasury wallets', 'OVER pools', 'Circulating'], rows);
 
   // Largest holders that aren't the bridge, a burn address or a listed treasury wallet.
   const skip = new Set([...DEAD, ...OVER.treasury, ...Object.values(OVER.locked).flat()].map(a => a.toLowerCase()));
