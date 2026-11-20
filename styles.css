@@ -1,11 +1,19 @@
+@font-face { font-family:'Inter Tight'; src:url('./assets/fonts/inter-tight-latin-400-normal.woff2') format('woff2'); font-weight:400; font-style:normal; font-display:swap; }
+@font-face { font-family:'Inter Tight'; src:url('./assets/fonts/inter-tight-latin-500-normal.woff2') format('woff2'); font-weight:500; font-style:normal; font-display:swap; }
+@font-face { font-family:'Inter Tight'; src:url('./assets/fonts/inter-tight-latin-600-normal.woff2') format('woff2'); font-weight:600; font-style:normal; font-display:swap; }
+@font-face { font-family:'Inter Tight'; src:url('./assets/fonts/inter-tight-latin-700-normal.woff2') format('woff2'); font-weight:700; font-style:normal; font-display:swap; }
+@font-face { font-family:'Instrument Serif'; src:url('./assets/fonts/instrument-serif-latin-400-italic.woff2') format('woff2'); font-weight:400; font-style:italic; font-display:swap; }
+
+/* OVER watch: night ink, chalk and floodlight lime. Charts keep the validated blue/orange pair. */
 :root {
-  --paper:#f7f7f2;
-  --ink:#253c30;
-  --muted:#647166;
-  --line:#d9ded4;
-  --card:#fcfcf8;
-  --link-hover:#526b39;
-  --baseline:#b3bdae;
+  --paper:#f2f3ec;
+  --ink:#0e1511;
+  --muted:#55605a;
+  --line:#d8dccf;
+  --card:#fafbf6;
+  --accent:#4f7a16;
+  --link-hover:#4f7a16;
+  --baseline:#b4bcb0;
   --series-1:#2a78d6;
   --series-2:#eb6834;
   --good:#0ca30c;
@@ -13,9 +21,9 @@
   --critical:#d03b3b;
   --up:#006300;
   --down:#c23434;
-  --shadow:0 8px 28px rgba(37,60,48,.12);
-  --serif:Georgia,'Times New Roman',serif;
-  --sans:'Helvetica Neue',Arial,sans-serif;
+  --shadow:0 8px 28px rgba(14,21,17,.12);
+  --serif:'Instrument Serif',Georgia,'Times New Roman',serif;
+  --sans:'Inter Tight','Helvetica Neue',Arial,sans-serif;
   color-scheme:light;
   font-family:var(--sans);
   font-synthesis:none;
@@ -23,34 +31,36 @@
   color:var(--ink);
 }
 :root[data-theme=dark] {
-  --paper:#17221c;
-  --ink:#e6ecdf;
-  --muted:#a4afa1;
-  --line:#35463a;
-  --card:#1d2b23;
-  --link-hover:#c4d8a2;
-  --baseline:#4c6051;
+  --paper:#0e1511;
+  --ink:#e9ede3;
+  --muted:#9aa69c;
+  --line:#26322a;
+  --card:#141d17;
+  --accent:#c6f05b;
+  --link-hover:#c6f05b;
+  --baseline:#3a483e;
   --series-1:#3987e5;
   --series-2:#d95926;
   --up:#0ca30c;
   --down:#e66767;
-  --shadow:0 8px 28px rgba(0,0,0,.35);
+  --shadow:0 8px 28px rgba(0,0,0,.45);
   color-scheme:dark;
 }
 @media (prefers-color-scheme:dark) {
   :root:not([data-theme]) {
-    --paper:#17221c;
-    --ink:#e6ecdf;
-    --muted:#a4afa1;
-    --line:#35463a;
-    --card:#1d2b23;
-    --link-hover:#c4d8a2;
-    --baseline:#4c6051;
+    --paper:#0e1511;
+    --ink:#e9ede3;
+    --muted:#9aa69c;
+    --line:#26322a;
+    --card:#141d17;
+    --accent:#c6f05b;
+    --link-hover:#c6f05b;
+    --baseline:#3a483e;
     --series-1:#3987e5;
     --series-2:#d95926;
     --up:#0ca30c;
     --down:#e66767;
-    --shadow:0 8px 28px rgba(0,0,0,.35);
+    --shadow:0 8px 28px rgba(0,0,0,.45);
     color-scheme:dark;
   }
 }
@@ -59,18 +69,20 @@ body { margin:0; -webkit-font-smoothing:antialiased; }
 a { color:inherit; }
 button { font:inherit; }
 svg { display:block; }
-::selection { background:#cfe695; color:#253c30; }
+::selection { background:#c6f05b; color:#0e1511; }
 a:focus-visible, button:focus-visible, summary:focus-visible { outline:2px solid currentColor; outline-offset:4px; border-radius:2px; }
 .wrap { width:min(1184px, calc(100% - 112px)); margin-inline:auto; }
 .skip-link { position:fixed; z-index:30; top:12px; left:12px; transform:translateY(-150%); padding:12px 18px; background:var(--ink); color:var(--paper); }
 .skip-link:focus { transform:translateY(0); }
 
-/* Header and footer mirror the main site. */
+/* Header and footer */
 .site-header { height:116px; display:flex; align-items:center; gap:28px; border-bottom:1px solid var(--line); }
-.identity { display:flex; align-items:center; gap:14px; text-decoration:none; }
-.monogram { font-size:34px; line-height:1; letter-spacing:-3px; font-weight:600; }
-.monogram span { color:#7c9861; }
-.identity-name { font-size:12px; line-height:1.45; font-weight:500; letter-spacing:.01em; }
+.identity { display:flex; align-items:center; gap:12px; text-decoration:none; }
+.mark { width:38px; height:38px; flex-shrink:0; color:var(--ink); }
+.mark .acc { stroke:var(--accent); fill:var(--accent); }
+.wordmark { font-size:23px; font-weight:600; letter-spacing:-.025em; line-height:1; }
+.wordmark em { font-family:var(--serif); font-weight:400; letter-spacing:-.01em; }
+.site-header nav a { color:var(--muted); }
 .site-header nav { margin-left:auto; font-size:14px; }
 .site-header nav a { padding:14px 0; text-decoration:none; }
 .site-header nav a:hover { color:var(--link-hover); }
@@ -129,6 +141,7 @@ h2 { font-size:30px; font-weight:400; letter-spacing:-.04em; line-height:1.16; m
 .seg button { border:0; background:none; color:var(--muted); padding:7px 14px; border-radius:999px; cursor:pointer; font-size:13px; }
 .seg button:hover { color:var(--ink); }
 .seg button[aria-pressed=true] { background:var(--ink); color:var(--paper); }
+[data-theme=dark] .seg button[aria-pressed=true] { background:var(--accent); color:#0e1511; }
 
 /* Chart cards */
 .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px 24px 18px; margin-top:16px; }

@@ -35,6 +35,10 @@ python3 -m http.server 8765 --bind 127.0.0.1   # page
 node scripts/snapshot.mjs                       # refresh data/ (Node 20+)
 ```
 
-Open http://127.0.0.1:8765. The favicon and home links point at the main site, so they only resolve once deployed.
+Open http://127.0.0.1:8765. The home links point at provatidis.com, so they only resolve once deployed.
+
+## Brand
+
+The mark is a stopwatch drawn as the O of OVER, its hand just past twelve. Colors: night ink `#0e1511`, chalk `#f2f3ec`, floodlight lime `#c6f05b` (deep lime `#4f7a16` on light backgrounds). Type: Inter Tight, with Instrument Serif italic for *watch*, both served from `assets/fonts` under the SIL Open Font License. Charts keep a separate blue and orange pair that passes colorblind checks.
 
 Not financial advice.
