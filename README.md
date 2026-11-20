@@ -16,9 +16,16 @@ A GitHub Action (`.github/workflows/snapshot.yml`) runs `scripts/snapshot.mjs` o
 
 It writes `data/latest.json` and adds a row to `data/history.json`, then commits both. The page reads those files and fetches a live price on load. If the snapshot is missing, it falls back to DefiLlama for the core charts.
 
+### How the numbers are kept honest
+
+- **Completed days only.** DefiLlama pulls Overtime hourly and files each day under its UTC start, so the newest entry is today so far. Headline figures and checks stop at the last full day, and the cards say which day that is.
+- **One measure at a time.** On 21 Jul 2026 (OIP-265) DefiLlama switched from counting fees and the SafeBox share of profitable pool rounds to the full betting result. The house-result trend check stays “Not comparable yet” until a 90-day window and the 90 days before it both fall after the switch (17 Jan 2027). Bars that mix both measures are starred.
+- **Failures never look like events.** Every onchain read must succeed (a failed balance read never counts as zero), the Ethereum bridge balance must match the supply on the other chains, and circulating supply must stay under the maximum. A source that fails is carried over from the last good snapshot with its own “as of” date, the page says so, and checks that depend on it are marked stale and never alert.
+- **Who voted.** Each governance row says whether the vote was cast with the council’s TC-NFTs or with OVER.
+
 ## Alerts
 
-When a thesis check gets worse (Healthy → Watch → Alert), the job opens an issue in this repo, and it closes that issue when the check is Healthy again. It also opens an issue for every new Snapshot vote. GitHub emails you about new issues in your own repos, so watching the repo is enough.
+When a thesis check gets worse (Healthy → Watch → Alert), the job opens an issue in this repo, and it closes that issue when the check is Healthy again. Checks running on stale data, or not yet comparable, never alert. It also opens an issue for every new Snapshot vote, saying who votes on it. GitHub emails you about new issues in your own repos, so watching the repo is enough.
 
 ## Tuning
 

@@ -1,9 +1,9 @@
 // OVER watch page. Reads the daily snapshot (data/latest.json) and a live price.
-import { ANNOTATIONS, CHAIN_NAMES, EXPLORERS, OVER, DEAD } from './lib/config.js';
+import { ANNOTATIONS, CHAIN_NAMES, EXPLORERS, OVER, DEAD, METHOD_CHANGE } from './lib/config.js';
 import { money, tokens, axisMoney, axisTokens, pct, fmtDate, shortMonth, ok } from './lib/format.js';
 import {
-  DAY, dailySeries, fromPairs, parseTreasury, treasuryFromRows, aggregate, periodStart, periodNext,
-  periodLabel, computeStats, computeChecks, GRADE
+  DAY, dailySeries, fromPairs, parseTreasury, treasuryFromRows, bankrollFromRows, completeDays, aggregate, periodStart,
+  periodNext, periodLabel, computeStats, computeChecks, voterGroup, GRADE
 } from './lib/metrics.js';
 
 // ---------- Theme (same storage key as provatidis.com) ----------
@@ -109,7 +109,7 @@ function axes(s, sc, Y, x0, x1, fmt) {
 }
 
 // Single-series line with area wash, end label, crosshair and keyboard readout.
-function lineChart(container, pts, { aria, name, fmt = money, axisFmt = axisMoney, zero = true }) {
+function lineChart(container, pts, { aria, name, fmt = money, axisFmt = axisMoney, zero = true, tipRows = null }) {
   container.replaceChildren();
   if (pts.length < 2) return empty(container, 'Not enough data for this range.');
   const W = Math.max(280, container.clientWidth), H = container.clientHeight || 300;
@@ -168,7 +168,7 @@ function lineChart(container, pts, { aria, name, fmt = money, axisFmt = axisMone
     const p = pts[i], x = X(p.t), y = Y(p.v);
     cross.setAttribute('x1', x); cross.setAttribute('x2', x); cross.setAttribute('visibility', 'visible');
     cdot.setAttribute('cx', x); cdot.setAttribute('cy', y); cdot.setAttribute('visibility', 'visible');
-    tip.show(fmtDate(p.t), [{ key: 's1', value: fmt(p.v), name }], cx, cy);
+    tip.show(fmtDate(p.t), tipRows ? tipRows(p) : [{ key: 's1', value: fmt(p.v), name }], cx, cy);
   };
   const hide = () => { cross.setAttribute('visibility', 'hidden'); cdot.setAttribute('visibility', 'hidden'); tip.hide(); };
   const toClient = i => { const r = s.getBoundingClientRect(); return [r.left + X(pts[i].t) * r.width / W, r.top + Y(pts[i].v) * r.height / H]; };
@@ -193,6 +193,10 @@ function lineChart(container, pts, { aria, name, fmt = money, axisFmt = axisMone
   });
   container.appendChild(s);
 }
+
+// Which DefiLlama measure a period uses: fees before the method change, the full result after.
+const measureOf = p => p.end <= METHOD_CHANGE ? 'fees' : p.start >= METHOD_CHANGE ? 'result' : 'both';
+const MEASURE_LABEL = { fees: 'Fees', result: 'Full result', both: 'Both (switched 21 Jul)' };
 
 function barPath(x, w, zero, y) {
   const h = Math.abs(y - zero);
@@ -230,12 +234,13 @@ function barChart(container, periods, mode) {
     if (pr) svg('path', { class: 'bar b-rev', d: pr }, g);
     const pb = barPath(bx + barW + 2, barW, zero, Y(p.buy));
     if (pb) svg('path', { class: 'bar b-buy', d: pb }, g);
-    if ((n - 1 - i) % every === 0) svg('text', { class: 'tick', x: cx, y: y0 + 19, 'text-anchor': 'middle' }, s).textContent = periodLabel(p.start, mode, false);
+    if ((n - 1 - i) % every === 0) svg('text', { class: 'tick', x: cx, y: y0 + 19, 'text-anchor': 'middle' }, s).textContent = periodLabel(p.start, mode, false) + (measureOf(p) === 'both' ? '*' : '');
     const rows = [
       { key: 's1', value: money(p.rev), name: 'House result' },
       { key: 's2', value: money(p.buy), name: 'Buybacks' }
     ];
     if (p.share != null) rows.push({ value: pct(p.share), name: 'of the result bought back' });
+    if (measureOf(p) === 'both') rows.push({ value: 'Mixed', name: 'fees before 21 Jul, full result after' });
     g.addEventListener('pointermove', e => tip.show(long, rows, e.clientX, e.clientY));
     g.addEventListener('pointerleave', () => tip.hide());
     g.addEventListener('focus', () => { const r = g.getBoundingClientRect(); tip.show(long, rows, r.left + r.width / 2, r.top + 12); });
@@ -325,41 +330,76 @@ function check(parent, c) {
   el('strong', null, GRADE[c.state][1], h);
   h.appendChild(document.createTextNode(` · ${c.title}`));
   el('p', 'check-text', c.text, body);
+  if (c.staleSince) el('p', 'stale-note', `Today’s update failed, so this uses data from ${c.staleSince}. No alerts until it refreshes.`, body);
 }
 
 // ---------- State ----------
-const state = { range: 365, mode: 'month', data: null, rev: null, buy: null, treasury: null, price: null, history: [], loaded: false };
+const state = { range: 365, mode: 'month', data: null, now: null, rev: null, buy: null, treasury: null, bankroll: null, price: null, history: [], loaded: false };
+
+const SOURCE_NAMES = { revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', bankroll: 'stablecoins', pools: 'betting pools', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
+const staleSources = () => Object.entries((state.data && state.data.sources) || {}).filter(([, v]) => !v.ok);
+const sourceDate = name => { const v = state.data && state.data.sources && state.data.sources[name]; return v && v.asOf ? fmtDate(v.asOf) : 'an earlier day'; };
 
 function renderSummary() {
-  const { rev, buy, treasury, price } = state;
-  const stats = computeStats(rev || [], buy || [], treasury || []);
+  const { rev, buy, bankroll, price } = state;
+  const s = computeStats({ rev, buy, bankroll });
+  const end = s.lastT != null ? fmtDate(s.lastT) : null;
+
+  // The headline: earnings and buybacks for the same dated period.
+  const head = $('headline');
+  head.replaceChildren();
+  if (end && ok(s.rev30)) {
+    const strong = t => el('strong', null, t, head);
+    const text = t => head.append(t);
+    text(`In the 30 days to ${end}, Overtime’s house `);
+    if (s.rev30 >= 0) { text('made '); strong(money(s.rev30)); } else { text('lost '); strong(money(-s.rev30)); }
+    if (ok(s.buy30)) {
+      text(s.rev30 > 0 ? ' and ' : ' while ');
+      strong(money(s.buy30));
+      text(s.rev30 > 0 ? ` of it (${pct(s.buy30 / s.rev30)}) went to buying back OVER.` : ' still went to buying back OVER.');
+    } else text('. Buyback data isn’t available.');
+    if (ok(s.rev90) && ok(s.buy90)) {
+      el('span', 'headline-sub', ` Over 90 days: ${money(s.rev90)} and ${money(s.buy90)}${s.rev90 > 0 ? ` (${pct(s.buy90 / s.rev90)})` : ''}.`, head);
+    }
+  } else {
+    head.textContent = 'House result and buyback figures didn’t load.';
+  }
+
   const tiles = $('tiles');
   tiles.replaceChildren();
   const mcap = price ? price.mcap : null;
+  tile(tiles, 'House result, 30 days', money(s.rev30), { note: end ? `To ${end} · ${money(s.rev365)} over the last year` : null });
+  tile(tiles, 'Bought back, 30 days', money(s.buy30), { note: ok(s.buy30) && ok(s.rev30) ? (s.rev30 > 0 ? `${pct(s.buy30 / s.rev30)} of the house result` : 'The house result was negative') : null });
+  const yld = ok(s.buy90) && mcap > 0 ? (s.buy90 * 365 / 90) / mcap : null;
+  tile(tiles, 'Buyback yield', pct(yld), { note: 'Last 90 days of buybacks, annualized, divided by market cap.' });
   tile(tiles, 'OVER price', price && ok(price.usd) ? `$${price.usd.toFixed(4)}` : '—', { delta: price ? price.change24h : null, deltaLabel: '24h', note: price && price.stale ? 'From the last snapshot.' : null });
   tile(tiles, 'Market cap', money(mcap), { note: 'Same as fully diluted value: no tokens left to unlock.' });
-  tile(tiles, 'Treasury stablecoins', money(stats.stablesNow), { delta: stats.change30, deltaLabel: '30 days' });
-  tile(tiles, 'House result, 30 days', money(stats.rev30), { note: ok(stats.rev365) ? `${money(stats.rev365)} over the last year` : null });
-  tile(tiles, 'Buybacks, 30 days', money(stats.buy30), { note: ok(stats.buy30) && ok(stats.rev30) ? (stats.rev30 > 0 ? `${pct(stats.buy30 / stats.rev30)} of the house result` : 'The house result was negative') : null });
-  const yld = ok(stats.buy90) && mcap > 0 ? (stats.buy90 * 365 / 90) / mcap : null;
-  tile(tiles, 'Buyback yield', pct(yld), { note: 'Last 90 days of buybacks, annualized, divided by market cap.' });
+  tile(tiles, 'House stablecoins', money(s.bankrollNow), { delta: s.change30, deltaLabel: '30 days', note: 'Treasury wallets and betting pools.' });
 
-  const checks = $('checks');
-  checks.replaceChildren();
-  computeChecks(stats).forEach(c => check(checks, c));
+  const list = $('checks');
+  list.replaceChildren();
+  const failed = new Set(staleSources().map(([k]) => k));
+  computeChecks(s).forEach(c => {
+    const bad = c.sources.filter(n => failed.has(n));
+    check(list, { ...c, staleSince: bad.length ? sourceDate(bad[0]) : null });
+  });
 
-  const last = stats.treasuryLast;
+  // Describe the rest of what the treasury holds next to the stablecoin chart.
+  const last = state.treasury && state.treasury.length ? state.treasury[state.treasury.length - 1] : null;
+  const extras = [];
   if (last) {
-    const extras = [];
     if (last.major > 0) extras.push(`${money(last.major)} in ETH and BTC`);
     if (ok(last.own) && last.own > 0) {
       const syms = (state.data && state.data.treasuryOwnSymbols) || [];
       extras.push(syms.length && !syms.includes('OVER') ? `${money(last.own)} that DefiLlama lists as old ${syms.join(', ')} tokens` : `${money(last.own)} in its own tokens`);
     }
-    if (last.other > 1000) extras.push(`${money(last.other)} in other tokens`);
-    const pools = state.data && state.data.poolsTvl > 0 ? ` The betting pools it funds hold another ${money(state.data.poolsTvl)}.` : '';
-    $('treasury-sub').textContent = `Stablecoins in the treasury wallets across chains. Since the treasury became the only liquidity provider, this is the house’s reserve, so losses show up here first.${extras.length ? ` It also holds ${extras.join(', ')}.` : ''}${pools}`;
   }
+  const pools = state.data && state.data.pools;
+  const parts = ['Stablecoins in the treasury wallets, plus the betting pools from 21 Jul 2026, when the treasury became their only liquidity provider. If the house is losing, it shows up here first.'];
+  if (s.bankrollLast && s.bankrollLast.pools != null) parts.push(`Today ${money(s.bankrollLast.treasury)} sits in the treasury and ${money(s.bankrollLast.pools)} in the pools.`);
+  if (pools && pools.total > pools.stable) parts.push(`The pools also hold ${money(pools.total - pools.stable)} in other tokens.`);
+  if (extras.length) parts.push(`The treasury also holds ${extras.join(', ')}.`);
+  $('treasury-sub').textContent = parts.join(' ');
 }
 
 const cutoff = () => state.range === 'all' ? -Infinity : Date.now() / 1000 - state.range * DAY;
@@ -367,24 +407,34 @@ const cutoff = () => state.range === 'all' ? -Infinity : Date.now() / 1000 - sta
 function renderTrends() {
   tip.hide();
   const from = cutoff();
-  if (state.treasury) {
-    const pts = state.treasury.filter(p => p.t >= from).map(p => ({ t: p.t, v: p.stable }));
-    lineChart($('treasury-chart'), pts, { aria: `Treasury stablecoins over time, now ${money(pts.length ? pts[pts.length - 1].v : null)}`, name: 'Stablecoins' });
+  if (state.bankroll) {
+    const pts = state.bankroll.filter(p => p.t >= from);
+    lineChart($('treasury-chart'), pts, {
+      aria: `The house’s stablecoins over time, now ${money(pts.length ? pts[pts.length - 1].v : null)}`,
+      name: 'Stablecoins',
+      tipRows: p => [
+        { key: 's1', value: money(p.v), name: 'Stablecoins' },
+        { value: money(p.treasury), name: 'in the treasury' },
+        ...(p.pools != null ? [{ value: money(p.pools), name: 'in the betting pools' }] : [])
+      ]
+    });
     const monthly = new Map();
     pts.forEach(p => monthly.set(periodStart(p.t, 'month'), p));
-    table($('treasury-table'), ['Month (last reading)', 'Stablecoins'], [...monthly.values()].reverse().map(p => [fmtDate(p.t), money(p.v)]));
+    table($('treasury-table'), ['Month (last reading)', 'Treasury', 'Betting pools', 'Total'],
+      [...monthly.values()].reverse().map(p => [fmtDate(p.t), money(p.treasury), p.pools != null ? money(p.pools) : '—', money(p.v)]));
   } else {
     empty($('treasury-chart'), 'Treasury data didn’t load.');
   }
   if (state.rev) {
     const periods = aggregate(state.rev, state.buy || [], state.mode).filter(p => p.end > from);
     barChart($('rev-chart'), periods, state.mode);
-    table($('rev-table'), [state.mode === 'quarter' ? 'Quarter' : 'Month', 'House result', 'Buybacks', 'Share bought back'],
-      [...periods].reverse().map(p => [periodLabel(p.start, state.mode, true) + (p.partial ? ' (so far)' : ''), money(p.rev), money(p.buy), p.share != null ? pct(p.share) : '—']));
+    table($('rev-table'), [state.mode === 'quarter' ? 'Quarter' : 'Month', 'House result', 'Buybacks', 'Share bought back', 'Measured as'],
+      [...periods].reverse().map(p => [periodLabel(p.start, state.mode, true) + (p.partial ? ' (so far)' : ''), money(p.rev), money(p.buy), p.share != null ? pct(p.share) : '—', MEASURE_LABEL[measureOf(p)]]));
     const done = periods.filter(p => !p.partial);
     const lastDone = done[done.length - 1];
     $('legend-rev').textContent = lastDone ? `${money(lastDone.rev)} in ${periodLabel(lastDone.start, state.mode, false)}` : '';
     $('legend-buy').textContent = lastDone ? `${money(lastDone.buy)}${lastDone.share != null ? ` (${pct(lastDone.share)})` : ''}` : '';
+    $('rev-mixed').hidden = !periods.some(p => measureOf(p) === 'both');
   } else {
     empty($('rev-chart'), 'Revenue data didn’t load.');
   }
@@ -399,8 +449,16 @@ function renderSupply() {
     return;
   }
   const price = state.price && state.price.usd;
+  const supplySrc = state.data.sources && state.data.sources.supply;
+  $('supply-asof').textContent = supplySrc && !supplySrc.ok ? `Today’s onchain read failed, so these figures are from ${sourceDate('supply')}.` : '';
   tile(tiles, 'Circulating supply', tokens(sup.circulating), { unit: 'OVER', note: `${pct(sup.circulating / sup.max)} of the ${tokens(sup.max)} maximum` });
-  tile(tiles, 'Burned so far', tokens(sup.burned), { unit: 'OVER', note: `${pct(sup.burned / sup.max)} of the maximum supply` });
+  // Every burn, from buybacks and from bets placed in OVER, shows up as growth in burned supply.
+  const burns = state.history.filter(h => ok(h.burned)).map(h => ({ t: Date.parse(h.date) / 1000, v: h.burned }));
+  const recent = burns.filter(b => b.t >= burns[burns.length - 1]?.t - 30 * DAY);
+  const burnNote = recent.length >= 2
+    ? `${tokens(recent[recent.length - 1].v - recent[0].v)} burned since ${fmtDate(recent[0].t)}${ok(price) ? `, about ${money((recent[recent.length - 1].v - recent[0].v) * price)}` : ''}`
+    : `${pct(sup.burned / sup.max)} of the maximum. Daily burn shows from the second snapshot.`;
+  tile(tiles, 'Burned so far', tokens(sup.burned), { unit: 'OVER', note: burnNote });
   tile(tiles, 'Held by the treasury', tokens(sup.treasury), { unit: 'OVER', note: `${pct(sup.treasury / sup.circulating)} of circulating supply` });
   tile(tiles, 'Free float', tokens(sup.float), { unit: 'OVER', note: ok(price) ? `Worth ${money(sup.float * price)} at today’s price` : null });
 
@@ -479,7 +537,18 @@ function renderGovernance() {
     return;
   }
   const now = Date.now() / 1000;
-  for (const p of gov.proposals) {
+  const groups = gov.proposals.map(p => voterGroup(p));
+  const known = gov.proposals.some(p => p.symbol);
+  const allCouncil = known && groups.every(g => g.council);
+  const holderVotes = groups.filter(g => !g.council).length;
+  $('gov-sub').textContent = !known
+    ? 'Latest Overtime Improvement Proposals on Snapshot. Proposals tagged “Holder value” touch buybacks, fees, incentives or the treasury.'
+    : allCouncil
+      ? 'OIP-263 (June 2026) moved the final vote from the elected council to OVER holders. Every vote here, including OIP-265 after it, was still cast with the council’s TC-NFTs, and no holder vote has been held in this Snapshot space yet. Proposals tagged “Holder value” touch buybacks, fees, incentives or the treasury.'
+      : `Since OIP-263 (June 2026), OVER holders vote directly; ${holderVotes} of the ${gov.proposals.length} proposals here ${holderVotes === 1 ? 'was a holder vote' : 'were holder votes'}. Each row says who voted. Proposals tagged “Holder value” touch buybacks, fees, incentives or the treasury.`;
+
+  gov.proposals.forEach((p, i) => {
+    const g = groups[i];
     const li = el('li', 'prop', null, list);
     const label = p.state === 'active' ? 'Active' : p.state === 'pending' ? 'Upcoming' : 'Closed';
     el('span', 'chip ' + p.state, label, li);
@@ -491,12 +560,20 @@ function renderGovernance() {
     else if (p.state === 'active' || p.end > now) bits.push(`Voting closes ${fmtDate(p.end)}`);
     else bits.push(`Closed ${fmtDate(p.end)}`);
     if (p.total > 0 && Array.isArray(p.scores) && p.scores.length) {
-      const i = p.scores.indexOf(Math.max(...p.scores));
-      bits.push(`${p.choices[i]} ${p.state === 'closed' ? 'won with' : 'leads with'} ${pct(p.scores[i] / p.total)}`);
+      const k = p.scores.indexOf(Math.max(...p.scores));
+      const n = p.votes != null ? p.votes : null;
+      if (g.council) {
+        bits.push(`${p.choices[k]} ${p.state === 'closed' ? 'won' : 'leads with'} ${tokens(p.scores[k])} of ${tokens(p.total)} council votes${p.symbol ? ` (${p.symbol})` : ''}`);
+      } else if (p.symbol) {
+        bits.push(`${p.choices[k]} ${p.state === 'closed' ? 'won' : 'leads'} with ${pct(p.scores[k] / p.total)} of ${tokens(p.total)} ${p.symbol}${n != null ? ` from ${n} wallet${n === 1 ? '' : 's'}` : ''}`);
+      } else {
+        bits.push(`${p.choices[k]} ${p.state === 'closed' ? 'won with' : 'leads with'} ${pct(p.scores[k] / p.total)}`);
+      }
     }
     meta.textContent = bits.join(' · ');
+    if (g.council) el('span', 'tag council', 'Council vote', meta);
     if (p.holderValue) el('span', 'tag', 'Holder value', meta);
-  }
+  });
 }
 
 function renderAll() {
@@ -546,9 +623,15 @@ async function loadLive() {
     getJSON('https://api.llama.fi/summary/fees/overtime?dataType=dailyHoldersRevenue&excludeTotalDataChartBreakdown=true'),
     getJSON('https://api.llama.fi/treasury/overtime')
   ]);
-  if (rev.status === 'fulfilled') state.rev = dailySeries(rev.value);
-  if (buy.status === 'fulfilled') state.buy = dailySeries(buy.value);
-  if (tre.status === 'fulfilled') { const t = parseTreasury(tre.value); state.treasury = t.length ? t : null; }
+  state.now = Date.now() / 1000;
+  if (rev.status === 'fulfilled') state.rev = completeDays(dailySeries(rev.value), state.now);
+  if (buy.status === 'fulfilled') state.buy = completeDays(dailySeries(buy.value), state.now);
+  if (tre.status === 'fulfilled') {
+    const t = parseTreasury(tre.value);
+    state.treasury = t.length ? t : null;
+    // Without the snapshot there's no pool data, so the bankroll is the treasury alone.
+    state.bankroll = state.treasury ? state.treasury.map(r => ({ t: r.t, v: r.stable, treasury: r.stable, pools: null })) : null;
+  }
 }
 
 async function livePrice() {
@@ -567,14 +650,20 @@ async function load() {
   const notes = [];
   if (snap.status === 'fulfilled') {
     const d = state.data = snap.value;
-    state.rev = d.revenue ? fromPairs(d.revenue) : null;
-    state.buy = d.buybacks ? fromPairs(d.buybacks) : null;
+    state.now = d.generatedAt;
+    state.rev = d.revenue ? completeDays(fromPairs(d.revenue), d.generatedAt) : null;
+    state.buy = d.buybacks ? completeDays(fromPairs(d.buybacks), d.generatedAt) : null;
     state.treasury = d.treasury ? treasuryFromRows(d.treasury) : null;
+    state.bankroll = d.bankroll ? bankrollFromRows(d.bankroll)
+      : state.treasury ? state.treasury.map(r => ({ t: r.t, v: r.stable, treasury: r.stable, pools: null })) : null;
+    if (state.rev && state.rev.length) notes.push(`Figures run through ${fmtDate(state.rev[state.rev.length - 1].t)}, the last full day.`);
     notes.push(`Snapshot taken ${new Date(d.generatedAt * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC.`);
-    if (d.errors && d.errors.length) notes.push(`Some parts are from an earlier snapshot: ${d.errors.map(e => e.split(':')[0]).join(', ')}.`);
+    const stale = staleSources();
+    if (stale.length) notes.push(`Couldn’t refresh today, so these are earlier readings: ${stale.map(([k, v]) => `${SOURCE_NAMES[k] || k} (${v.asOf ? fmtDate(v.asOf) : 'unknown date'})`).join(', ')}.`);
   } else {
     await loadLive();
     notes.push('The daily snapshot didn’t load, so only the core charts are shown, straight from DefiLlama.');
+    if (state.rev && state.rev.length) notes.push(`Figures run through ${fmtDate(state.rev[state.rev.length - 1].t)}.`);
   }
   if (hist.status === 'fulfilled' && Array.isArray(hist.value)) state.history = hist.value;
   if (price.status === 'fulfilled') {
@@ -584,11 +673,10 @@ async function load() {
   } else if (state.data && state.data.price) {
     state.price = { ...state.data.price, stale: true };
   }
-  if (state.rev && state.rev.length) notes.push(`Daily figures run to ${fmtDate(state.rev[state.rev.length - 1].t)}.`);
   state.loaded = true;
   renderAll();
   const status = $('status');
   status.textContent = notes.join(' ');
-  if (!state.data || (state.data.errors && state.data.errors.length)) status.classList.add('error');
+  if (!state.data || staleSources().length) status.classList.add('error');
 }
 load();

@@ -9,8 +9,8 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { OVER, DEAD, LOCKED_NAME, HOLDER_VALUE } from '../lib/config.js';
-import { dailySeries, parseTreasury, treasuryToRows, computeStats, computeChecks, GRADE, RANK, DAY } from '../lib/metrics.js';
-import { money } from '../lib/format.js';
+import { dailySeries, parseTreasury, treasuryToRows, bankrollRows, bankrollFromRows, completeDays, computeStats, computeChecks, voterGroup, GRADE, RANK } from '../lib/metrics.js';
+import { money, tokens, fmtDate } from '../lib/format.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.resolve(process.env.OUT_DIR || path.join(ROOT, 'data'));
@@ -89,15 +89,16 @@ async function topHolders(chain, token) {
   });
 }
 
+// Every read must succeed: a failed balance read must never count as zero, or a missing bridge
+// balance would show tens of millions of extra OVER in circulation.
 async function supplySnapshot(price) {
   const chains = {};
   const lower = s => s.toLowerCase();
-  const treasurySet = new Set(OVER.treasury.map(lower));
+  const treasurySet = [...new Set(OVER.treasury.map(lower))];
   for (const [chain, token] of Object.entries(OVER.tokens)) {
-    const c = { total: null, dead: 0, locked: 0, treasury: 0, lockedBy: [], holders: null };
-    c.total = await totalSupply(chain, token);
-    for (const d of DEAD) c.dead += await balanceOf(chain, token, d).catch(() => 0);
-    for (const t of treasurySet) c.treasury += await balanceOf(chain, token, t).catch(() => 0);
+    const c = { total: await totalSupply(chain, token), dead: 0, locked: 0, treasury: 0, lockedBy: [], holders: null };
+    for (const d of DEAD) c.dead += await balanceOf(chain, token, d);
+    for (const t of treasurySet) c.treasury += await balanceOf(chain, token, t);
     // Holders are needed on Ethereum to find the bridge pool; elsewhere they're a bonus.
     c.holders = chain === 'ethereum'
       ? await step(`holders ${chain}`, () => topHolders(chain, token))
@@ -105,12 +106,21 @@ async function supplySnapshot(price) {
     const lockedAddrs = new Set((OVER.locked[chain] || []).map(lower));
     for (const h of c.holders || []) if (h.contract && h.name && LOCKED_NAME.test(h.name)) lockedAddrs.add(h.address);
     for (const a of lockedAddrs) {
-      const bal = await balanceOf(chain, token, a).catch(() => null);
-      if (bal != null) { c.locked += bal; c.lockedBy.push({ address: a, tokens: bal }); }
+      const bal = await balanceOf(chain, token, a);
+      c.locked += bal;
+      c.lockedBy.push({ address: a, tokens: bal });
     }
     chains[chain] = c;
   }
+  // Sanity checks: the Ethereum bridge pool backs exactly the OVER on the other chains, and
+  // circulating supply can't exceed the maximum.
+  const l2 = Object.entries(chains).filter(([k]) => k !== 'ethereum').reduce((s, [, c]) => s + c.total, 0);
+  const locked = chains.ethereum.locked;
+  if (Math.abs(locked - l2) > Math.max(1000, l2 * 0.005)) {
+    throw new Error(`bridge check failed: ${tokens(locked)} locked on Ethereum vs ${tokens(l2)} on the other chains`);
+  }
   const circulating = Object.values(chains).reduce((s, c) => s + c.total - c.dead - c.locked, 0);
+  if (!(circulating > 0) || circulating > OVER.maxSupply * 1.0001) throw new Error(`circulating supply ${tokens(circulating)} is outside 0–${tokens(OVER.maxSupply)}`);
   const treasury = Object.values(chains).reduce((s, c) => s + c.treasury, 0);
   return {
     max: OVER.maxSupply,
@@ -166,7 +176,7 @@ async function liquiditySnapshot() {
 }
 
 async function governanceSnapshot() {
-  const query = `query { proposals(first: 10, skip: 0, where: { space_in: ["${OVER.snapshotSpace}"] }, orderBy: "created", orderDirection: desc) { id title start end state choices scores scores_total link } }`;
+  const query = `query { proposals(first: 10, skip: 0, where: { space_in: ["${OVER.snapshotSpace}"] }, orderBy: "created", orderDirection: desc) { id title start end state choices scores scores_total votes symbol quorum link strategies { name } } }`;
   const j = await getJSON('https://hub.snapshot.org/graphql', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query })
   });
@@ -177,6 +187,10 @@ async function governanceSnapshot() {
       id: p.id, title: p.title, state: p.state, start: p.start, end: p.end,
       link: p.link || `https://snapshot.box/#/s:${OVER.snapshotSpace}/proposal/${p.id}`,
       choices: p.choices, scores: p.scores, total: p.scores_total,
+      votes: typeof p.votes === 'number' ? p.votes : null,
+      symbol: p.symbol || null,
+      quorum: typeof p.quorum === 'number' ? p.quorum : null,
+      strategies: Array.isArray(p.strategies) ? p.strategies.map(x => x.name) : [],
       holderValue: HOLDER_VALUE.test(p.title || '')
     }))
   };
@@ -213,8 +227,10 @@ async function sendAlerts(prev, next) {
   const marker = id => `<!-- overwatch:${id} -->`;
 
   for (const c of next.checks) {
+    // Only compare graded, fresh checks against a graded, fresh previous reading.
     const before = (prev.checks || []).find(x => x.id === c.id);
-    if (!before || before.state === c.state || c.state === 'unknown' || before.state === 'unknown') continue;
+    if (!before || c.stale || before.stale) continue;
+    if (RANK[c.state] < 0 || RANK[before.state] == null || RANK[before.state] < 0 || before.state === c.state) continue;
     if (RANK[c.state] > RANK[before.state]) {
       const title = `${c.title}: ${GRADE[before.state][1]} → ${GRADE[c.state][1]}`;
       await gh('/issues', 'POST', { title: `[OVER watch] ${title}`, body: `${c.text}\n\n[Open OVER watch](${PAGE_URL})\n\n${marker('check:' + c.id)}` });
@@ -228,12 +244,14 @@ async function sendAlerts(prev, next) {
     }
   }
 
-  if (prev.governance && next.governance) {
+  // New votes, only when both today's and the previous governance reads are fresh.
+  if (prev.governance && next.governance && next.sources.governance.ok) {
     const known = new Set(prev.governance.proposals.map(p => p.id));
     for (const p of next.governance.proposals.filter(p => !known.has(p.id)).reverse()) {
       const when = p.end ? ` Voting closes ${new Date(p.end * 1000).toUTCString().replace(/:\d\d GMT/, ' UTC')}.` : '';
+      const who = ` Voters: ${voterGroup(p).label}.`;
       const tag = p.holderValue ? ' Touches buybacks, fees or the treasury.' : '';
-      await gh('/issues', 'POST', { title: `[OVER watch] New vote: ${p.title}`, body: `${p.link}${when}${tag}\n\n${marker('proposal:' + p.id)}` });
+      await gh('/issues', 'POST', { title: `[OVER watch] New vote: ${p.title}`, body: `${p.link}${when}${who}${tag}\n\n${marker('proposal:' + p.id)}` });
       sent.push(`vote: ${p.title}`);
     }
   }
@@ -257,64 +275,94 @@ async function main() {
   await mkdir(OUT, { recursive: true });
   const prev = await readJSON(path.join(OUT, 'latest.json'));
   const history = (await readJSON(path.join(OUT, 'history.json'))) || [];
+  const now = Math.floor(Date.now() / 1000);
 
-  const [revJ, buyJ, treJ, price, liquidity, governance] = await Promise.all([
+  const [revJ, buyJ, treJ, protoJ, price, liquidity, governance] = await Promise.all([
     step('house result', () => getJSON('https://api.llama.fi/summary/fees/overtime?dataType=dailyRevenue&excludeTotalDataChartBreakdown=true')),
     step('buybacks', () => getJSON('https://api.llama.fi/summary/fees/overtime?dataType=dailyHoldersRevenue&excludeTotalDataChartBreakdown=true')),
     step('treasury', () => getJSON('https://api.llama.fi/treasury/overtime')),
+    step('betting pools', () => getJSON('https://api.llama.fi/protocol/overtime')),
     step('price', priceSnapshot),
     step('liquidity', liquiditySnapshot),
     step('governance', governanceSnapshot)
   ]);
-  const poolsTvl = await getJSON('https://api.llama.fi/tvl/overtime').then(Number).catch(() => null);
 
-  const rev = revJ ? dailySeries(revJ) : null;
-  const buy = buyJ ? dailySeries(buyJ) : null;
+  // Each source is either fresh today or carried over from the last good snapshot with its own
+  // "as of" time, so the page can say how old it is and alerts can ignore it.
+  const sources = {};
+  const prevSrc = name => (prev && prev.sources && prev.sources[name]) || null;
+  function settle(name, fresh, prevValue) {
+    if (fresh != null) { sources[name] = { ok: true, asOf: now }; return fresh; }
+    const p = prevSrc(name);
+    sources[name] = { ok: false, asOf: p ? p.asOf : (prev && prevValue != null ? prev.generatedAt : null) };
+    return prevValue != null ? prevValue : null;
+  }
+
+  const revRows = settle('revenue', revJ ? dailySeries(revJ).map(p => [p.t, Math.round(p.v)]) : null, prev && prev.revenue);
+  const buyRows = settle('buybacks', buyJ ? dailySeries(buyJ).map(p => [p.t, Math.round(p.v)]) : null, prev && prev.buybacks);
   const treasury = treJ ? parseTreasury(treJ) : null;
-  const priceData = price || (prev && prev.price ? { ...prev.price, stale: true } : null);
-  if (priceData && !(priceData.mcap > 0) && treJ && Number(treJ.mcap) > 0) priceData.mcap = Number(treJ.mcap);
-  const supply = await step('supply', () => supplySnapshot(priceData && priceData.usd));
+  const pools = protoJ ? parseTreasury(protoJ) : null;
+  const treasuryRows = settle('treasury', treasury && treasury.length ? treasuryToRows(treasury) : null, prev && prev.treasury);
+  const bankroll = settle('bankroll', treasury && treasury.length && pools && pools.length ? bankrollRows(treasury, pools) : null, prev && prev.bankroll);
+  const poolsNow = pools && pools.length ? pools[pools.length - 1] : null;
+  const poolsSummary = settle('pools', poolsNow ? { total: Math.round(poolsNow.stable + poolsNow.major + poolsNow.other), stable: Math.round(poolsNow.stable) } : null, prev && prev.pools);
 
-  // Keep the last good copy of any part that failed today.
-  const keep = (fresh, key) => fresh != null ? fresh : (prev ? prev[key] : null);
-  const stats = computeStats(rev || [], buy || [], treasury || []);
-  const checks = computeChecks(stats);
-  const ownUsd = treasury && treasury.length ? treasury[treasury.length - 1].own : null;
+  let priceData = price;
+  if (priceData && !(priceData.mcap > 0) && treJ && Number(treJ.mcap) > 0) priceData.mcap = Number(treJ.mcap);
+  priceData = settle('price', priceData, prev && prev.price);
+  const supply = settle('supply', await step('supply', () => supplySnapshot(priceData && priceData.usd)), prev && prev.supply);
+  const liq = settle('liquidity', liquidity, prev && prev.liquidity);
+  const gov = settle('governance', governance, prev && prev.governance);
+  const ownUsd = treasury && treasury.length ? treasury[treasury.length - 1].own : (prev ? prev.treasuryOwnUsd : null);
+
+  // Checks run on exactly what gets published (fresh or carried over), on completed days only.
+  const fromRows = rows => (rows || []).map(([t, v]) => ({ t, v }));
+  const stats = computeStats({
+    rev: revRows ? completeDays(fromRows(revRows), now) : null,
+    buy: buyRows ? completeDays(fromRows(buyRows), now) : null,
+    bankroll: bankroll ? bankrollFromRows(bankroll) : null
+  });
+  const checks = computeChecks(stats).map(c => ({ ...c, stale: c.sources.some(n => !sources[n] || !sources[n].ok) }));
 
   const next = {
-    generatedAt: Math.floor(Date.now() / 1000),
+    generatedAt: now,
+    sources,
     price: priceData,
-    revenue: rev ? rev.map(p => [p.t, Math.round(p.v)]) : keep(null, 'revenue'),
-    buybacks: buy ? buy.map(p => [p.t, Math.round(p.v)]) : keep(null, 'buybacks'),
-    treasury: treasury ? treasuryToRows(treasury) : keep(null, 'treasury'),
-    treasuryOwnUsd: ownUsd != null ? ownUsd : keep(null, 'treasuryOwnUsd'),
-    treasuryOwnSymbols: treJ ? ownSymbols(treJ) : keep(null, 'treasuryOwnSymbols'),
-    poolsTvl: Number.isFinite(poolsTvl) ? Math.round(poolsTvl) : keep(null, 'poolsTvl'),
-    supply: keep(supply, 'supply'),
-    liquidity: keep(liquidity, 'liquidity'),
-    governance: keep(governance, 'governance'),
+    revenue: revRows,
+    buybacks: buyRows,
+    treasury: treasuryRows,
+    bankroll,
+    pools: poolsSummary,
+    treasuryOwnUsd: ownUsd,
+    treasuryOwnSymbols: treJ ? ownSymbols(treJ) : (prev ? prev.treasuryOwnSymbols : null),
+    supply,
+    liquidity: liq,
+    governance: gov,
     checks,
     errors
   };
 
-  const date = new Date().toISOString().slice(0, 10);
+  // History keeps only fresh readings, so a carried-over value never looks like a new data point.
+  const date = new Date(now * 1000).toISOString().slice(0, 10);
+  const fresh = name => sources[name] && sources[name].ok;
   const row = {
     date,
-    price: priceData ? priceData.usd : null,
-    mcap: priceData ? priceData.mcap : null,
-    stables: stats.stablesNow != null ? Math.round(stats.stablesNow) : null,
-    circulating: supply ? Math.round(supply.circulating) : null,
-    burned: supply ? Math.round(supply.burned) : null,
-    treasuryOver: supply ? Math.round(supply.treasury) : null,
-    liquidityUsd: liquidity ? liquidity.totalUsd : null,
-    volume24h: liquidity ? liquidity.volume24h : null,
-    checks: Object.fromEntries(checks.map(c => [c.id, c.state]))
+    price: fresh('price') ? priceData.usd : null,
+    mcap: fresh('price') ? priceData.mcap : null,
+    bankroll: fresh('bankroll') && stats.bankrollNow != null ? Math.round(stats.bankrollNow) : null,
+    circulating: fresh('supply') ? Math.round(supply.circulating) : null,
+    burned: fresh('supply') ? Math.round(supply.burned) : null,
+    treasuryOver: fresh('supply') ? Math.round(supply.treasury) : null,
+    liquidityUsd: fresh('liquidity') ? liq.totalUsd : null,
+    volume24h: fresh('liquidity') ? liq.volume24h : null,
+    checks: Object.fromEntries(checks.map(c => [c.id, c.stale ? `${c.state} (stale)` : c.state]))
   };
   const i = history.findIndex(h => h.date === date);
   if (i >= 0) history[i] = row; else history.push(row);
   history.sort((a, b) => a.date.localeCompare(b.date));
 
   await writeFile(path.join(OUT, 'latest.json'), JSON.stringify(next));
+  await writeFile(path.join(OUT, 'history.json'), JSON.stringify(history, null, 1));
   if (treJ) {
     const last = Object.fromEntries(Object.entries(treJ.chainTvls || {}).map(([k, v]) => [k, {
       tvl: Array.isArray(v.tvl) && v.tvl.length ? v.tvl[v.tvl.length - 1] : null,
@@ -323,15 +371,15 @@ async function main() {
     }]));
     await writeFile(path.join(OUT, 'treasury-debug.json'), JSON.stringify({ current: treJ.currentChainTvls || null, last }, null, 1));
   }
-  await writeFile(path.join(OUT, 'history.json'), JSON.stringify(history, null, 1));
 
   const sent = await step('alerts', () => sendAlerts(prev, next));
-  console.log(`Snapshot ${date}: ${checks.map(c => `${c.id}=${c.state}`).join(', ')}`);
-  if (supply) console.log(`Supply: circulating ${Math.round(supply.circulating)}, treasury ${Math.round(supply.treasury)}`);
-  if (liquidity) console.log(`Liquidity: ${money(liquidity.totalUsd)} in ${liquidity.pools.length} pools`);
+  console.log(`Snapshot ${date}: ${checks.map(c => `${c.id}=${c.state}${c.stale ? ' (stale)' : ''}`).join(', ')}`);
+  if (stats.lastT) console.log(`Completed days through ${fmtDate(stats.lastT)}: 30d result ${money(stats.rev30)}, buybacks ${money(stats.buy30)}`);
+  if (supply) console.log(`Supply${fresh('supply') ? '' : ' (carried over)'}: circulating ${Math.round(supply.circulating)}, treasury ${Math.round(supply.treasury)}`);
+  if (liq) console.log(`Liquidity: ${money(liq.totalUsd)} in ${liq.pools.length} pools`);
   if (sent && sent.length) console.log('Alerts:', sent.join(' | '));
   if (errors.length) console.log('Errors:', errors.join(' | '));
-  if (!rev && !treasury) process.exitCode = 1; // nothing useful fetched
+  if (!fresh('revenue') && !fresh('treasury')) process.exitCode = 1; // nothing useful fetched
 }
 
 await main();

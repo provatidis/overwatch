@@ -51,7 +51,10 @@
           <p class="eyebrow">TRACKER / OVERTIME</p>
           <h1 id="title">OVER <em>watch.</em></h1>
         </div>
-        <p class="lead">Is <a href="https://www.overtime.io/" rel="noopener">Overtime</a>’s onchain sportsbook working for $OVER holders? The treasury’s stablecoins, the house result and how much of it buys back and burns the token, plus supply, liquidity and governance.</p>
+        <div class="lead-block">
+          <p class="headline" id="headline" aria-live="polite">Loading the latest figures…</p>
+          <p class="lead">A daily tracker for <a href="https://www.overtime.io/" rel="noopener">Overtime</a>’s onchain sportsbook: what the house earns, how much of it buys back and burns $OVER, and the treasury, supply, liquidity and votes behind it.</p>
+        </div>
         <p class="status" id="status" role="status">Loading data…</p>
         <noscript><p class="status error">This page loads its figures with JavaScript.</p></noscript>
       </section>
@@ -60,7 +63,7 @@
 
       <section class="block wrap" aria-labelledby="checks-title">
         <h2 id="checks-title">Thesis <em>checks.</em></h2>
-        <p class="sub">Each check turns amber or red when its number crosses the thresholds in <code>lib/config.js</code>. A daily job opens a GitHub issue in this project’s repo when one gets worse, and closes it when it recovers.</p>
+        <p class="sub">Each check turns amber or red when its number crosses the thresholds in <code>lib/config.js</code>. A daily job opens a GitHub issue in this project’s repo when one gets worse and closes it when it recovers. A check whose data failed to refresh is marked and never alerts.</p>
         <ul class="checks" id="checks"></ul>
       </section>
 
@@ -80,8 +83,8 @@
         </div>
 
         <div class="card" aria-labelledby="treasury-title">
-          <h2 id="treasury-title">Treasury stablecoins</h2>
-          <p class="sub" id="treasury-sub">Stablecoins held by the treasury across chains. Since the treasury became the only liquidity provider, this is the house’s bankroll, so losses show up here first.</p>
+          <h2 id="treasury-title">House stablecoins</h2>
+          <p class="sub" id="treasury-sub">Stablecoins in the treasury wallets, plus the betting pools from 21 Jul 2026, when the treasury became their only liquidity provider. If the house is losing, it shows up here first.</p>
           <div class="chart" id="treasury-chart"><div class="empty">Loading…</div></div>
           <details><summary>Show as table</summary><div class="table-wrap" id="treasury-table"></div></details>
         </div>
@@ -98,7 +101,8 @@
             </div>
           </div>
           <div class="chart" id="rev-chart"><div class="empty">Loading…</div></div>
-          <p class="fine">Faded bars are periods still in progress. “House result” is DefiLlama’s revenue figure: fees until 21 Jul 2026, then the full betting result after OIP-265 made the treasury the only liquidity provider, so it can be negative. Buybacks count stablecoins spent on OVER; tokens burned directly from bets placed in OVER aren’t included here, but they do show up in the burned supply below.</p>
+          <p class="fine" id="rev-mixed" hidden>* Mixes both of DefiLlama’s measures: fees before 21 Jul 2026, the full betting result after.</p>
+          <p class="fine">Faded bars are periods still in progress, up to the last full day. “House result” is DefiLlama’s revenue figure: fees until 21 Jul 2026, then the full betting result after OIP-265 made the treasury the only liquidity provider, so it can be negative. Buybacks count stablecoins spent on OVER; tokens burned directly from bets placed in OVER aren’t included here, but they do show up in the burned supply below.</p>
           <details><summary>Show as table</summary><div class="table-wrap" id="rev-table"></div></details>
         </div>
       </section>
@@ -110,6 +114,7 @@
         <div class="card">
           <h2>Circulating supply</h2>
           <p class="sub" id="supply-sub">One reading a day from the snapshot job.</p>
+          <p class="stale-note" id="supply-asof"></p>
           <div class="chart short" id="supply-chart"><div class="empty">Loading…</div></div>
           <p class="fine" id="supply-note"></p>
           <details><summary>Show by chain</summary><div class="table-wrap" id="supply-table"></div></details>
@@ -133,7 +138,7 @@
 
       <section class="section wrap" aria-labelledby="gov-title">
         <h2 id="gov-title">Governance</h2>
-        <p class="sub">Latest Overtime Improvement Proposals on Snapshot. Since OIP-263 in June 2026, OVER holders vote directly. Proposals tagged “Holder value” touch buybacks, fees, incentives or the treasury.</p>
+        <p class="sub" id="gov-sub">Latest Overtime Improvement Proposals on Snapshot. Proposals tagged “Holder value” touch buybacks, fees, incentives or the treasury.</p>
         <div class="card list"><ul class="props" id="props"><li class="prop"><span></span><span class="meta">Loading…</span></li></ul></div>
       </section>
 
