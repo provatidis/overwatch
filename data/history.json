@@ -1,17 +1,17 @@
 [
  {
   "date": "2026-11-20",
-  "price": 0.178353,
-  "mcap": 9619128.938411277,
-  "stables": 2451877,
+  "price": 0.178319,
+  "mcap": 9617312.43028253,
+  "bankroll": 3131430,
   "circulating": 53933062,
   "burned": 15486938,
   "treasuryOver": 15654317,
-  "liquidityUsd": 631285,
-  "volume24h": 7421,
+  "liquidityUsd": 631228,
+  "volume24h": 7648,
   "checks": {
    "bankroll": "good",
-   "quarter": "watch",
+   "trend": "pending",
    "share": "good"
   }
  }
