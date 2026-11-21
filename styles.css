@@ -98,16 +98,22 @@ a:focus-visible, button:focus-visible, summary:focus-visible { outline:2px solid
 .site-footer span a { font-size:inherit; text-decoration:underline; text-underline-offset:2px; }
 
 /* Intro */
-.intro { padding:48px 0 30px; border-bottom:1px solid var(--line); display:grid; grid-template-columns:1.2fr 1fr; column-gap:60px; align-items:end; }
+/* Name and today's checks on the left; the money sentence and what the tracker is on the right.
+   The title and headline share a bottom line, the checks and the description a top line. */
+.intro { padding:48px 0 30px; border-bottom:1px solid var(--line); display:grid; grid-template-columns:minmax(0, 1.2fr) minmax(0, 1fr); grid-template-areas:"title headline" "verdict lead" "status status"; column-gap:60px; row-gap:22px; align-items:start; }
+.intro-title { grid-area:title; align-self:end; }
+.intro .headline { grid-area:headline; align-self:end; }
+.intro .verdict { grid-area:verdict; max-width:560px; }
+.intro .lead { grid-area:lead; }
+.intro .status, .intro noscript { grid-area:status; }
 .eyebrow { font-size:12px; font-weight:600; letter-spacing:.13em; line-height:1.7; margin:0; }
 h1 { font-size:clamp(46px, 5.4vw, 76px); font-weight:400; letter-spacing:-.04em; line-height:1.02; margin:14px 0 0; }
 h1 em, h2 em { font-family:var(--serif); font-weight:400; }
-.lead-block { display:flex; flex-direction:column; gap:14px; }
 .headline { font-size:21px; line-height:1.45; letter-spacing:-.01em; margin:0; }
 .headline strong { font-weight:600; }
 .headline-sub { color:var(--muted); }
 /* One line per check under the headline */
-.verdict { list-style:none; margin:2px 0 4px; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(215px, 1fr)); gap:8px 18px; font-size:13.5px; line-height:1.4; }
+.verdict { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(215px, 1fr)); gap:8px 18px; font-size:13.5px; line-height:1.4; }
 .verdict:empty { display:none; }
 .verdict a { display:flex; align-items:flex-start; gap:7px; color:var(--ink); text-decoration:none; }
 .verdict a:hover { text-decoration:underline; text-underline-offset:3px; }
@@ -121,7 +127,7 @@ h1 em, h2 em { font-family:var(--serif); font-weight:400; }
 .sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 .lead { font-size:14.5px; line-height:1.6; margin:0; color:var(--muted); }
 .lead a { text-underline-offset:3px; }
-.status { grid-column:1 / -1; margin:22px 0 0; font-size:13px; color:var(--muted); }
+.status { margin:8px 0 0; font-size:13px; color:var(--muted); }
 .status.error { color:var(--down); }
 
 /* Stat tiles */
@@ -258,7 +264,8 @@ td a { text-underline-offset:2px; }
 
 @media (max-width:1000px) {
   .wrap { width:calc(100% - 64px); }
-  .intro { grid-template-columns:1fr; row-gap:20px; }
+  .intro { grid-template-columns:minmax(0, 1fr); grid-template-areas:"title" "headline" "verdict" "lead" "status"; row-gap:16px; }
+  .intro-title { margin-bottom:4px; }
 }
 @media (max-width:640px) {
   .wrap { width:calc(100% - 36px); }
