@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { OVER, DEAD } from '../lib/config.js';
 import { run } from '../scripts/snapshot.mjs';
+import { MULTICALL3, decodeAggregate3Calls, encodeAggregate3Results } from '../lib/multicall.js';
 
 export const DAY = 86400;
 export const T0 = Date.UTC(2026, 10, 20, 4, 17) / 1000; // a normal 04:17 UTC run
@@ -13,7 +14,14 @@ const lc = a => a.toLowerCase();
 const SAFE = '0xdac09f37e132d91b962f30e6ec40d2d08b82b0fa';
 const TRE = '0x1777c6d588fd931751762836811529c0073d6376';
 const BRIDGE = lc(OVER.locked.ethereum[0]);
-const roundPool = (kind, chain) => '0x' + (kind === 'usdc' ? 'a' : 'b') + String(Object.keys(OVER.tokens).indexOf(chain)).padStart(39, '0');
+const idx = chain => Object.keys(OVER.tokens).indexOf(chain);
+const roundPool = (kind, chain) => '0x' + (kind === 'usdc' ? 'a' : 'b') + String(idx(chain)).padStart(39, '0');
+const defaultPool = (kind, chain) => '0x' + (kind === 'usdc' ? 'd' : 'e') + String(idx(chain)).padStart(39, '0');
+const proxyAdmin = (kind, chain) => '0x' + (kind === 'usdc' ? 'ad1' : 'ad2') + String(idx(chain)).padStart(37, '0');
+const ticket = (kind, chain, i) => '0x' + (kind === 'usdc' ? 'f1' : 'f2') + String(idx(chain)) + String(i).padStart(37, '0');
+const IMPL_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+const ADMIN_SLOT = '0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103';
+const ROUND = 57;
 const word = n => '0x' + BigInt(n).toString(16).padStart(64, '0');
 const units = (n, decimals) => word(BigInt(Math.round(n * 1e6)) * 10n ** BigInt(decimals - 6));
 
@@ -33,6 +41,10 @@ export function makeWorld(over = {}) {
       { id: '0xp265', title: 'OIP-265: Wind down public liquidity provision', created: T0 - 150 * DAY, start: T0 - 150 * DAY, end: T0 - 146 * DAY, state: 'closed', choices: ['For', 'Against'], scores: [4, 0], scores_total: 4, votes: 4, symbol: 'TC-NFT', strategies: [{ name: 'erc20-balance-of' }] },
       { id: '0xp263', title: 'OIP-263: Dissolve council', created: T0 - 170 * DAY, start: T0 - 170 * DAY, end: T0 - 165 * DAY, state: 'closed', choices: ['YES', 'NO'], scores: [5, 0], scores_total: 5, votes: 5, symbol: 'TC-NFT', strategies: [{ name: 'erc20-balance-of' }] }
     ],
+    impl: (kind, chain) => '0x' + (kind === 'usdc' ? '1a' : '2b') + '0'.repeat(38),  // pool code (EIP-1967 implementation)
+    adminOwner: '0xef2b0a2ffcdcd3b53d81800d19a543136f26a6b8',
+    defaultUsdc: 50_000,             // per chain, in the default pool (round 1)
+    openBets: [{ held: 1_000, stake: 300 }, { held: 500, stake: 100 }, { held: 0, stake: 50 }], // current round, per chain and kind
     fail: new Set(),                 // e.g. 'buybacks', 'revenue-empty', 'revenue-stale', 'gov-empty', 'pool-usdc', 'bridge'
     issues: [],                      // what the job posted to GitHub
     ...over
@@ -84,7 +96,10 @@ export function makeWorld(over = {}) {
       if (method === 'PATCH') { const n = Number(url.split('/').pop()); const i = w.issues.find(x => x.number === n); if (i) i.state = body.state; return json(i || {}); }
       return json({}, 201);
     }
-    if (method === 'POST' && opts.body && opts.body.includes('eth_call')) return chain(JSON.parse(opts.body).params[0], url);
+    if (method === 'POST' && opts.body) {
+      const req = JSON.parse(opts.body);
+      if (req.method === 'eth_call' || req.method === 'eth_getStorageAt') return chain(req, url);
+    }
     return new Response(`not faked: ${url}`, { status: 404 });
   };
 
@@ -92,27 +107,68 @@ export function makeWorld(over = {}) {
     return url.includes('optimism') ? 'optimism' : url.includes('arb') ? 'arbitrum' : url.includes('base') ? 'base' : 'ethereum';
   }
 
-  function chain({ to, data }, url) {
+  // Answers one call; returns a 32-byte hex result, or throws to stand for a revert.
+  function answer(c, to, data) {
     to = lc(to);
-    const c = chainOf(url);
-    // Betting pools: round() and roundPools(round)
-    const usdcPool = lc(OVER.bettingPools[c] ? OVER.bettingPools[c].pool : '');
-    const overPool = lc(OVER.overPools[c] || '');
-    if (to === usdcPool || to === overPool) {
-      if (to === usdcPool && w.fail.has('pool-usdc')) return json({ jsonrpc: '2.0', id: 1, error: { message: 'execution reverted' } });
-      if (data === '0x146ca531') return rpc(word(57));
-      if (data.startsWith('0x4651f080')) return rpc('0x' + roundPool(to === usdcPool ? 'usdc' : 'over', c).slice(2).padStart(64, '0'));
+    const kindOf = a => (lc(OVER.bettingPools[c] ? OVER.bettingPools[c].pool : '') === a ? 'usdc' : lc(OVER.overPools[c] || '') === a ? 'over' : null);
+    const kind = kindOf(to);
+    if (kind) {
+      if (kind === 'usdc' && w.fail.has('pool-usdc')) throw new Error('execution reverted');
+      const arg = (n = 0) => BigInt('0x' + data.slice(10 + n * 64, 74 + n * 64));
+      if (data === '0x146ca531') return word(ROUND);
+      if (data.startsWith('0x4651f080')) {
+        const r = Number(arg());
+        const a = r === ROUND ? roundPool(kind, c) : r === 1 ? defaultPool(kind, c) : '0x0';
+        return '0x' + a.slice(2).padStart(64, '0');
+      }
+      if (data.startsWith('0x145dee7d')) { const r = Number(arg()); return word(r === ROUND ? w.openBets.length : r === 1 ? 1234 : 0); }
+      if (data.startsWith('0x03d868db')) return '0x' + ticket(kind, c, Number(arg(1))).slice(2).padStart(64, '0');
+    }
+    for (const kind of ['usdc', 'over']) {
+      if (to === proxyAdmin(kind, c) && data === '0x8da5cb5b') return '0x' + w.adminOwner.slice(2).padStart(64, '0');
+      const i = w.openBets.findIndex((_, k) => ticket(kind, c, k) === to);
+      if (i >= 0 && data === '0xd165dac2') return units(w.openBets[i].stake, kind === 'usdc' ? 6 : 18);
     }
     const who = '0x' + data.slice(-40);
-    if (OVER.bettingPools[c] && to === lc(OVER.bettingPools[c].usdc)) return rpc(units(who === roundPool('usdc', c) ? w.poolUsdc[c] : 0, 6));
-    if (to === lc(OVER.tokens[c])) {
-      if (data === '0x18160ddd') return rpc(units(w.supply[c], 18));
-      if (who === roundPool('over', c)) return rpc(units(w.overPool[c], 18));
-      if (c === 'ethereum' && who === BRIDGE) return rpc(units(w.locked + (w.fail.has('bridge') ? 1_000_000 : 0), 18));
-      if (c === 'ethereum' && who === lc(DEAD[1])) return rpc(units(w.dead, 18));
-      return rpc(units((w.wallets[c] || {})[who] || 0, 18));
+    const held = kind => { const i = w.openBets.findIndex((_, k) => ticket(kind, c, k) === who); return i >= 0 ? w.openBets[i].held : null; };
+    if (OVER.bettingPools[c] && to === lc(OVER.bettingPools[c].usdc)) {
+      if (who === roundPool('usdc', c)) return units(w.poolUsdc[c], 6);
+      if (who === defaultPool('usdc', c)) return units(w.defaultUsdc, 6);
+      return units(held('usdc') ?? 0, 6);
     }
-    return json({ jsonrpc: '2.0', id: 1, error: { message: `unknown call to ${to}` } });
+    if (to === lc(OVER.tokens[c])) {
+      if (data === '0x18160ddd') return units(w.supply[c], 18);
+      if (who === roundPool('over', c)) return units(w.overPool[c], 18);
+      if (who === defaultPool('over', c)) return units(10_000, 18);
+      if (held('over') != null) return units(held('over'), 18);
+      if (c === 'ethereum' && who === BRIDGE) return units(w.locked + (w.fail.has('bridge') ? 1_000_000 : 0), 18);
+      if (c === 'ethereum' && who === lc(DEAD[1])) return units(w.dead, 18);
+      return units((w.wallets[c] || {})[who] || 0, 18);
+    }
+    throw new Error(`unknown call to ${to}`);
+  }
+
+  function chain(req, url) {
+    const c = chainOf(url);
+    const fail = message => json({ jsonrpc: '2.0', id: 1, error: { message } });
+    if (req.method === 'eth_getStorageAt') {
+      if (w.fail.has('contracts')) return fail('storage read failed');
+      const [addr, slot] = req.params;
+      for (const kind of ['usdc', 'over']) {
+        const proxy = lc(kind === 'usdc' ? (OVER.bettingPools[c] || {}).pool || '' : OVER.overPools[c] || '');
+        if (lc(addr) !== proxy) continue;
+        const a = slot === IMPL_SLOT ? w.impl(kind, c) : slot === ADMIN_SLOT ? proxyAdmin(kind, c) : '0x0';
+        return rpc('0x' + a.slice(2).padStart(64, '0'));
+      }
+      return rpc(word(0));
+    }
+    const { to, data } = req.params[0];
+    if (lc(to) === MULTICALL3) {
+      return rpc(encodeAggregate3Results(decodeAggregate3Calls(data).map(call => {
+        try { return { success: true, data: answer(c, call.to, call.data) }; } catch { return { success: false, data: '0x' }; }
+      })));
+    }
+    try { return rpc(answer(c, to, data)); } catch (e) { return fail(e.message); }
   }
 
   return w;

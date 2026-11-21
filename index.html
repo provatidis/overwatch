@@ -15,6 +15,10 @@
         document.documentElement.dataset.theme = theme;
         document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#0e1511' : '#f2f3ec';
       })();
+      // Start fetching the daily snapshot while the page's code is still loading.
+      window.owData = ['latest', 'history'].map(name => fetch(`./data/${name}.json`, { cache: 'no-cache' })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }));
+      window.owData.forEach(p => p.catch(() => {}));
     </script>
     <title>OVER watch — Overtime treasury, house result and buybacks</title>
     <meta name="description" content="Overtime’s treasury is the house on its onchain sportsbook, and part of what it wins buys back OVER. A daily check on whether that keeps working.">
@@ -34,6 +38,9 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:creator" content="@provatidis">
     <link rel="stylesheet" href="./styles.css">
+    <link rel="modulepreload" href="./lib/config.js">
+    <link rel="modulepreload" href="./lib/format.js">
+    <link rel="modulepreload" href="./lib/metrics.js">
     <script type="module" src="./app.js"></script>
   </head>
   <body>
@@ -124,7 +131,7 @@
           <p class="fine" id="supply-note"></p>
           <details><summary>Show by chain</summary><div class="table-wrap" id="supply-table"></div></details>
           <details><summary>Largest other holders</summary>
-            <p class="fine">Top wallets on each chain that aren’t the bridge pool, a burn address or a listed treasury wallet. Unlabelled multisigs may still belong to the team or the DAO.</p>
+            <p class="fine" id="holders-note">Top wallets that aren’t the bridge pool, a burn address or a listed treasury wallet.</p>
             <div class="table-wrap" id="holders-table"></div>
           </details>
         </div>
@@ -145,6 +152,8 @@
         <h2 id="gov-title">Governance</h2>
         <p class="sub" id="gov-sub">Latest Overtime Improvement Proposals on Snapshot. Proposals tagged “Holder value” touch buybacks, fees, incentives or the treasury.</p>
         <div class="card list"><ul class="props" id="props"><li class="prop"><span></span><span class="meta">Loading…</span></li></ul></div>
+        <h3 class="minor" id="control-title">Who can change the betting pools</h3>
+        <p class="fine" id="control-note">Loading…</p>
       </section>
 
       <footer class="site-footer wrap">

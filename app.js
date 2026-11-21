@@ -304,16 +304,18 @@ const chainName = c => CHAIN_NAMES[c] || (c ? c[0].toUpperCase() + c.slice(1) : 
 const DEX_NAMES = { uniswap: 'Uniswap', velodrome: 'Velodrome', aerodrome: 'Aerodrome', sushiswap: 'SushiSwap', camelot: 'Camelot', balancer: 'Balancer' };
 const dexName = p => (DEX_NAMES[p.dex] || p.dex || '') + (p.version ? ` ${p.version}` : '');
 
-function table(container, head, rows) {
+// Numbers are right-aligned; columns listed in opts.text hold words and read left-aligned.
+function table(container, head, rows, opts = {}) {
   container.replaceChildren();
+  const textCol = i => (opts.text || []).includes(i) ? 'text' : null;
   const t = el('table', null, null, container);
   const tr = el('tr', null, null, el('thead', null, null, t));
-  head.forEach(h => el('th', null, h, tr));
+  head.forEach((h, i) => el('th', textCol(i), h, tr));
   const body = el('tbody', null, null, t);
   rows.forEach(r => {
     const row = el('tr', null, null, body);
-    r.forEach(c => {
-      const td = el('td', null, null, row);
+    r.forEach((c, i) => {
+      const td = el('td', textCol(i), null, row);
       if (c && typeof c === 'object' && c.href) link(c.href, c.text, td); else td.textContent = c;
     });
   });
@@ -379,9 +381,10 @@ function renderSummary() {
   const s = computeStats({ rev, buy, treasury: state.treasury, readings, overReadings: overReadingsFromHistory(state.history) });
   const end = s.lastT != null ? fmtDate(s.lastT) : null;
 
-  // The headline: earnings and buybacks for the same dated period.
-  const head = $('headline');
-  head.replaceChildren();
+  // The headline: earnings and buybacks for the same dated period. Built aside and swapped in only
+  // when it changes, so screen readers don't hear it again when the live price lands.
+  const target = $('headline');
+  const head = document.createElement('p');
   if (end && ok(s.rev30)) {
     const strong = t => el('strong', null, t, head);
     const text = t => head.append(t);
@@ -400,6 +403,7 @@ function renderSummary() {
   } else {
     head.textContent = 'House result and buyback figures didn’t load.';
   }
+  if (head.innerHTML !== target.innerHTML) target.replaceChildren(...head.childNodes);
 
   const tiles = $('tiles');
   tiles.replaceChildren();
@@ -562,14 +566,42 @@ function renderSupply() {
   holders.sort((a, b) => b.tokens - a.tokens);
   const top = holders.slice(0, 8);
   const wrap = $('holders-table');
+  const label = holderLabeler();
   if (top.length) {
-    table(wrap, ['Holder', 'Chain', 'OVER', 'Share of circulating'], top.map(h => [
-      { href: (EXPLORERS[h.chain] || '') + h.address, text: `${h.address.slice(0, 6)}…${h.address.slice(-4)}${h.name ? ` (${h.name.replace(/Proxy$/, '')})` : ''}` },
-      chainName(h.chain), tokens(h.tokens), pct(h.tokens / sup.circulating)
-    ]));
+    table(wrap, ['Holder', 'What it is', 'Chain', 'OVER', 'Share of circulating'], top.map(h => [
+      { href: (EXPLORERS[h.chain] || '') + h.address, text: `${h.address.slice(0, 6)}…${h.address.slice(-4)}` },
+      label(h), chainName(h.chain), tokens(h.tokens), pct(h.tokens / sup.circulating)
+    ]), { text: [1, 2] });
   } else {
     empty(wrap, 'Holder lists weren’t available in this snapshot.');
   }
+  // Say which chains the list covers: the block explorers don't always answer.
+  const chains = Object.entries(sup.chains || {});
+  const covered = chains.filter(([, c]) => Array.isArray(c.holders)).map(([k]) => chainName(k));
+  const missing = chains.filter(([, c]) => !Array.isArray(c.holders)).map(([k]) => chainName(k));
+  const list = names => names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+  $('holders-note').textContent = `Top wallets${covered.length ? ` on ${list(covered)}` : ''} that aren’t the bridge pool, a burn address or a listed treasury wallet.`
+    + (missing.length ? ` ${list(missing)} ${missing.length === 1 ? 'isn’t' : 'aren’t'} included: ${missing.length === 1 ? 'its' : 'their'} block explorer${missing.length === 1 ? '' : 's'} didn’t return a holder list.` : '')
+    + ' “Wallet” means an ordinary account; who controls it isn’t public.';
+}
+
+// Plain names for holders: Overtime's admin multisig (read onchain as the owner of the betting
+// pools' upgrade key), DEX pools (from the liquidity list), then what the block explorer reports.
+function holderLabeler() {
+  const key = (chain, a) => `${chain}:${String(a).toLowerCase()}`;
+  const admins = new Set(((state.data && state.data.contracts) || []).filter(c => c.adminOwner).map(c => key(c.chain, c.adminOwner)));
+  const dex = new Set(((state.data && state.data.liquidity && state.data.liquidity.pools) || [])
+    .map(p => { const m = /\/(0x[0-9a-fA-F]{40})$/.exec(p.url || ''); return m ? key(p.chain, m[1]) : null; }).filter(Boolean));
+  return h => {
+    const n = h.name || '';
+    if (admins.has(key(h.chain, h.address))) return 'Overtime admin multisig (holds the betting pools’ upgrade key)';
+    if (dex.has(key(h.chain, h.address)) || /UniswapV[23](Pool|Pair)|CLPool|^Pool$|Pair$/.test(n)) return 'DEX pool';
+    if (/PoolManager/.test(n)) return 'Uniswap v4 pools';
+    if (/GnosisSafe|^Safe/.test(n)) return 'Safe multisig';
+    if (/7702|DeleGator/i.test(n)) return 'Wallet (smart account)';  // an ordinary account with EIP-7702 smart-account code
+    if (h.contract) return n && !/Proxy$|^ERC1967|^Transparent/.test(n) ? `Contract (${n})` : 'Contract';
+    return 'Wallet';
+  };
 }
 
 function renderLiquidity() {
@@ -590,7 +622,44 @@ function renderLiquidity() {
     liq.pools.map(p => [p.url ? { href: p.url, text: p.pair } : p.pair, dexName(p), chainName(p.chain), money(p.liquidityUsd), money(p.volume24h)]));
 }
 
+// Who can change the betting pools: they're upgradeable, so whoever holds the upgrade key can swap
+// their code. Read daily from the contracts; a change opens an issue.
+function renderControl() {
+  const note = $('control-note');
+  const list = (state.data && state.data.contracts) || null;
+  if (!list || !list.length) { note.textContent = 'The pool contracts come from the daily snapshot, which didn’t include them.'; return; }
+  note.replaceChildren();
+  const short = a => `${a.slice(0, 6)}…${a.slice(-4)}`;
+  const owners = new Map();
+  for (const c of list) if (c.adminOwner) {
+    const k = `${c.chain}:${c.adminOwner}`;
+    if (!owners.has(k)) owners.set(k, { chain: c.chain, address: c.adminOwner, pools: 0 });
+    owners.get(k).pools++;
+  }
+  const holderOf = (chain, a) => { const c = state.data.supply && state.data.supply.chains && state.data.supply.chains[chain]; return c && Array.isArray(c.holders) ? c.holders.find(h => h.address === a.toLowerCase()) : null; };
+  note.append(`All ${list.length} betting pools are upgradeable contracts: whoever holds the upgrade key can replace their code. `);
+  if (owners.size) {
+    note.append('The key is held by ');
+    [...owners.values()].forEach((o, i, arr) => {
+      if (i) note.append(i === arr.length - 1 ? ' and ' : ', ');
+      link((EXPLORERS[o.chain] || '') + o.address, short(o.address), note);
+      const h = holderOf(o.chain, o.address);
+      const what = h && /GnosisSafe|^Safe/.test(h.name || '') ? 'a Safe multisig' : null;
+      const bits = [chainName(o.chain), what, h ? `holding ${tokens(h.tokens)} OVER` : null, `${o.pools} pool${o.pools === 1 ? '' : 's'}`].filter(Boolean);
+      note.append(` (${bits.join(', ')})`);
+    });
+    note.append('. ');
+  }
+  const changed = list.filter(c => c.since > c.firstSeen);
+  const first = Math.min(...list.map(c => c.firstSeen));
+  note.append(changed.length
+    ? `Code changed since tracking began on ${fmtDate(first)}: ${changed.map(c => `${chainName(c.chain)} ${c.kind} on ${fmtDate(c.since)}`).join(', ')}. `
+    : `None of their code has changed since tracking began on ${fmtDate(first)}. `);
+  note.append('A change, or the key moving, opens a GitHub issue.');
+}
+
 function renderGovernance() {
+  renderControl();
   const gov = state.data && state.data.governance;
   const list = $('props');
   list.replaceChildren();
@@ -703,11 +772,17 @@ async function livePrice() {
   return { usd: o.usd, mcap: o.usd_market_cap || null, change24h: ok(o.usd_24h_change) ? o.usd_24h_change / 100 : null };
 }
 
+// The page draws as soon as the daily snapshot is in, using the snapshot's price, and swaps in the
+// live price when CoinGecko answers. Waiting for CoinGecko first could hold the page for 12 seconds.
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))]);
+
 async function load() {
-  const [snap, hist, price] = await Promise.allSettled([
-    getJSON('./data/latest.json', 20000, { cache: 'no-cache' }),
-    getJSON('./data/history.json', 20000, { cache: 'no-cache' }),
-    livePrice()
+  const live = livePrice();
+  live.catch(() => {});
+  const early = window.owData || [];
+  const [snap, hist] = await Promise.allSettled([
+    early[0] ? withTimeout(early[0], 20000) : getJSON('./data/latest.json', 20000, { cache: 'no-cache' }),
+    early[1] ? withTimeout(early[1], 20000) : getJSON('./data/history.json', 20000, { cache: 'no-cache' })
   ]);
   const notes = [];
   if (snap.status === 'fulfilled') {
@@ -726,17 +801,21 @@ async function load() {
     if (state.rev && state.rev.length) notes.push(`Figures run through ${fmtDate(state.rev[state.rev.length - 1].t)}.`);
   }
   if (hist.status === 'fulfilled' && Array.isArray(hist.value)) state.history = hist.value;
-  if (price.status === 'fulfilled') {
-    state.price = price.value;
-    const snapMcap = state.data && state.data.price && state.data.price.mcap;
-    if (!(state.price.mcap > 0) && snapMcap > 0) state.price.mcap = state.price.usd * (snapMcap / state.data.price.usd);
-  } else if (state.data && state.data.price) {
-    state.price = { ...state.data.price, stale: true };
-  }
+  if (state.data && state.data.price) state.price = { ...state.data.price, stale: true };
   state.loaded = true;
   renderAll();
   const status = $('status');
   status.textContent = notes.join(' ');
   if (!state.data || staleSources().length) status.classList.add('error');
+
+  try {
+    const p = await live;
+    const snapMcap = state.data && state.data.price && state.data.price.mcap;
+    if (!(p.mcap > 0) && snapMcap > 0) p.mcap = p.usd * (snapMcap / state.data.price.usd);
+    state.price = p;
+    renderSummary();
+    renderSupply();
+    renderLiquidity();
+  } catch { /* Keep the snapshot's price. */ }
 }
 load();

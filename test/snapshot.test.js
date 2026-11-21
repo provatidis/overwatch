@@ -145,3 +145,48 @@ test('an alert closes itself when the check is healthy again', async () => {
   await runDay(w, dir, 3);
   assert.equal(w.issues.filter(i => i.state === 'open').length, 0);
 });
+
+test('the job reads who controls the betting pools and where their money sits', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  const r = await runDay(w, dir);
+  assert.deepEqual(r.next.errors, []);
+  assert.equal(r.next.contracts.length, 6);
+  assert.ok(r.next.contracts.every(c => c.adminOwner === w.adminOwner && c.implementation && c.since === T0 && c.firstSeen === T0));
+  const op = r.next.capital.usdc.optimism;
+  assert.equal(op.round, 57);
+  assert.deepEqual(op.pools.map(p => [p.round, p.amount]), [[1, 50_000], [57, 173_000]]);
+  assert.equal(op.pools[0].bets, 1234);                   // default round: counted, not read one by one
+  assert.deepEqual(op.open, { bets: 3, open: 2, held: 1_500, stakes: 400 });
+  assert.equal(r.next.capital.over.base.pools.find(p => p.round === 1).amount, 10_000);
+});
+
+test('a change to a pool’s code opens one issue and is remembered', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  await runDay(w, dir, 0);
+  const old = w.impl('usdc', 'optimism');
+  const before = w.impl;
+  w.impl = (kind, chain) => (kind === 'usdc' && chain === 'optimism' ? '0x' + '9'.repeat(40) : before(kind, chain));
+  const r = await runDay(w, dir, 1);
+  assert.deepEqual(r.sent, ['Betting pool code changed on the Optimism USDC pool']);
+  const c = r.next.contracts.find(x => x.chain === 'optimism' && x.kind === 'USDC pool');
+  assert.equal(c.previous, old);
+  assert.equal(c.since, T0 + DAY);
+  assert.equal(c.firstSeen, T0);
+  assert.ok(r.next.contracts.filter(x => x !== c).every(x => x.since === T0));
+  const again = await runDay(w, dir, 2);
+  assert.deepEqual(again.sent, []);
+});
+
+test('an upgrade key moving on every pool is one issue; a failed read alerts nothing', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  await runDay(w, dir, 0);
+  w.fail.add('contracts');
+  w.adminOwner = '0x' + '7'.repeat(40);
+  const failed = await runDay(w, dir, 1);
+  assert.equal(failed.next.sources.contracts.ok, false);
+  assert.deepEqual(failed.sent, []);
+  w.fail.delete('contracts');
+  const moved = await runDay(w, dir, 2);
+  assert.deepEqual(moved.sent, ['Betting pool contracts changed (6 changes)']);
+  assert.equal(w.issues.length, 1);
+});

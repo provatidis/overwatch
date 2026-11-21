@@ -11,6 +11,7 @@ import path from 'node:path';
 import { OVER, DEAD, LOCKED_NAME, HOLDER_VALUE, THRESHOLDS, CHAIN_NAMES } from '../lib/config.js';
 import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
 import { money, tokens, fmtDate } from '../lib/format.js';
+import { MULTICALL3, encodeAggregate3, decodeAggregate3 } from '../lib/multicall.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PAGE_URL = 'https://overwatch.day/';
@@ -29,6 +30,13 @@ const BLOCKSCOUT = {
   optimism: 'https://optimism.blockscout.com',
   arbitrum: 'https://arbitrum.blockscout.com',
   base:     'https://base.blockscout.com'
+};
+
+const EXPLORER_ADDR = {
+  ethereum: 'https://etherscan.io/address/',
+  optimism: 'https://optimistic.etherscan.io/address/',
+  arbitrum: 'https://arbiscan.io/address/',
+  base: 'https://basescan.org/address/'
 };
 
 const sleep = ms => ms > 0 ? new Promise(r => setTimeout(r, ms)) : Promise.resolve();
@@ -70,22 +78,35 @@ function checkSeries(name, rows, prevRows, now) {
 }
 
 // ---------- Onchain reads ----------
-async function ethCall(chain, to, data) {
+async function rpcRaw(chain, method, params) {
   let last;
   for (const url of RPCS[chain]) {
     try {
       const j = await getJSON(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data }, 'latest'] })
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
       }, 2);
       if (j.error) throw new Error(j.error.message || 'RPC error');
       if (!j.result || j.result === '0x') throw new Error('empty RPC result');
-      return BigInt(j.result);
+      return j.result;
     } catch (e) { last = e; }
   }
   throw last;
 }
+const ethCall = async (chain, to, data) => BigInt(await rpcRaw(chain, 'eth_call', [{ to, data }, 'latest']));
+const storageAt = async (chain, address, slot) => BigInt(await rpcRaw(chain, 'eth_getStorageAt', [address, slot, 'latest']));
+
+// Many reads in a few requests through Multicall3. A call that fails comes back as null.
+async function readMany(chain, calls, size = 300) {
+  const out = [];
+  for (let i = 0; i < calls.length; i += size) {
+    const raw = await rpcRaw(chain, 'eth_call', [{ to: MULTICALL3, data: encodeAggregate3(calls.slice(i, i + size)) }, 'latest']);
+    for (const r of decodeAggregate3(raw)) out.push(r.success && r.data.length >= 66 ? BigInt(r.data.slice(0, 66)) : null);
+  }
+  return out;
+}
+
 const UNIT = 10n ** BigInt(OVER.decimals - 6);
 const toTokens = big => Number(big / UNIT) / 1e6;
 const totalSupply = (chain, token) => ethCall(chain, token, '0x18160ddd').then(toTokens);
@@ -118,7 +139,7 @@ async function supplySnapshot(price) {
     // Holders are needed on Ethereum to find the bridge pool; elsewhere they're a bonus.
     c.holders = chain === 'ethereum'
       ? await step(`holders ${chain}`, () => topHolders(chain, token))
-      : await topHolders(chain, token).catch(() => null);
+      : await topHolders(chain, token).catch(e => { c.holdersError = e.message; return null; });
     const lockedAddrs = new Set((OVER.locked[chain] || []).map(lower));
     for (const h of c.holders || []) if (h.contract && h.name && LOCKED_NAME.test(h.name)) lockedAddrs.add(h.address);
     for (const a of lockedAddrs) {
@@ -162,6 +183,97 @@ async function poolSnapshot() {
   }
   if (!(out.total > 0) || out.total > 50e6) throw new Error(`pool total ${money(out.total)} looks wrong`);
   out.total = Math.round(out.total);
+  return out;
+}
+
+// ---------- Betting-pool contracts ----------
+const SEL = {
+  round: '0x146ca531',             // round()
+  roundPools: '0x4651f080',        // roundPools(uint256)
+  ticketCount: '0x145dee7d',       // getNumberOfTradingTicketsPerRound(uint256)
+  ticketAt: '0x03d868db',          // tradingTicketsPerRound(uint256,uint256)
+  buyIn: '0xd165dac2',             // buyInAmount() on a ticket
+  balanceOf: '0x70a08231',         // balanceOf(address)
+  owner: '0x8da5cb5b'              // owner()
+};
+const word = n => BigInt(n).toString(16).padStart(64, '0');
+const addrWord = a => a.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+const toAddr = big => '0x' + big.toString(16).padStart(40, '0').slice(-40);
+const isZeroAddr = a => !a || /^0x0+$/.test(a);
+
+// The pools are upgradeable proxies (EIP-1967). Their code and who can change it are read daily,
+// so a change opens an issue.
+const IMPL_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+const ADMIN_SLOT = '0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103';
+async function contractWatch() {
+  const targets = [
+    ...Object.entries(OVER.bettingPools).map(([chain, cfg]) => ({ chain, kind: 'USDC pool', proxy: cfg.pool })),
+    ...Object.entries(OVER.overPools).map(([chain, pool]) => ({ chain, kind: 'OVER pool', proxy: pool }))
+  ];
+  const out = [];
+  for (const t of targets) {
+    const implementation = toAddr(await storageAt(t.chain, t.proxy, IMPL_SLOT));
+    const admin = toAddr(await storageAt(t.chain, t.proxy, ADMIN_SLOT));
+    const adminOwner = isZeroAddr(admin) ? null : toAddr(await ethCall(t.chain, admin, SEL.owner));
+    out.push({ ...t, proxy: t.proxy.toLowerCase(), implementation: isZeroAddr(implementation) ? null : implementation, admin: isZeroAddr(admin) ? null : admin, adminOwner });
+  }
+  return out;
+}
+
+// Keeps when each pool's code was first seen and last changed, across runs.
+function carryContracts(prevList, list, now) {
+  return list.map(c => {
+    const p = (prevList || []).find(x => x.chain === c.chain && x.proxy === c.proxy);
+    const firstSeen = p ? (p.firstSeen ?? p.since ?? now) : now;
+    if (p && p.implementation === c.implementation) return { ...c, firstSeen, since: p.since ?? firstSeen, previous: p.previous ?? null };
+    return { ...c, firstSeen, since: now, previous: p ? p.implementation : null };
+  });
+}
+
+// Where the house's betting money sits, measured but not yet used in any figure: the current
+// round's pool (what the pool reading already counts), pools for later rounds, the default pool
+// that takes futures and parlays spanning rounds (round 1), and money held by open bets in the
+// current and later rounds. The default round's bets go back to launch, so they're only counted.
+const ROUNDS_AHEAD = 6, MAX_TICKETS = 4000;
+async function bettingCapital(chain, pool, token, decimals) {
+  const scale = 10n ** BigInt(decimals - 6);
+  const amount = b => (b == null ? null : Number(b / scale) / 1e6);
+  const round = Number(await ethCall(chain, pool, SEL.round));
+  const rounds = [1, ...Array.from({ length: ROUNDS_AHEAD + 1 }, (_, k) => round + k)];
+  const addrs = await readMany(chain, rounds.map(r => ({ to: pool, data: SEL.roundPools + word(r) })));
+  const counts = await readMany(chain, rounds.map(r => ({ to: pool, data: SEL.ticketCount + word(r) })));
+  const pools = rounds.map((r, i) => ({ round: r, address: addrs[i] == null ? null : toAddr(addrs[i]), bets: counts[i] == null ? null : Number(counts[i]) }))
+    .filter(p => !isZeroAddr(p.address));
+  const bal = await readMany(chain, pools.map(p => ({ to: token, data: SEL.balanceOf + addrWord(p.address) })));
+  pools.forEach((p, i) => { p.amount = amount(bal[i]); });
+
+  const live = pools.filter(p => p.round >= round);
+  const bets = live.reduce((n, p) => n + (p.bets || 0), 0);
+  const open = { bets, open: null, held: null, stakes: null };
+  if (bets > MAX_TICKETS) open.skipped = `more than ${MAX_TICKETS} bets`;
+  else if (bets > 0) {
+    const tickets = (await readMany(chain, live.flatMap(p => Array.from({ length: p.bets || 0 }, (_, i) => ({ to: pool, data: SEL.ticketAt + word(p.round) + word(i) })))))
+      .filter(b => b != null).map(toAddr).filter(a => !isZeroAddr(a));
+    const held = await readMany(chain, tickets.map(t => ({ to: token, data: SEL.balanceOf + addrWord(t) })));
+    const openIdx = held.map((b, i) => (b != null && b > 0n ? i : -1)).filter(i => i >= 0);
+    const stakes = await readMany(chain, openIdx.map(i => ({ to: tickets[i], data: SEL.buyIn })));
+    open.open = openIdx.length;
+    open.held = amount(openIdx.reduce((sum, i) => sum + held[i], 0n));
+    open.stakes = stakes.every(b => b != null) ? amount(stakes.reduce((sum, b) => sum + b, 0n)) : null;
+  }
+  return { round, pools, open };
+}
+
+async function capitalSnapshot() {
+  const out = { usdc: {}, over: {} };
+  for (const [chain, cfg] of Object.entries(OVER.bettingPools)) {
+    out.usdc[chain] = await bettingCapital(chain, cfg.pool, cfg.usdc, 6).catch(e => ({ error: e.message }));
+  }
+  for (const [chain, pool] of Object.entries(OVER.overPools)) {
+    out.over[chain] = await bettingCapital(chain, pool, OVER.tokens[chain], OVER.decimals).catch(e => ({ error: e.message }));
+  }
+  const all = [...Object.values(out.usdc), ...Object.values(out.over)];
+  if (all.every(c => c.error)) throw new Error(all[0].error);
   return out;
 }
 
@@ -320,6 +432,30 @@ async function sendAlerts(prev, next) {
     sent.push('buyback rate up');
   }
 
+  // A change to a betting pool's code, or to who can change it, against the last good reading (so a
+  // change during an outage still shows), and only from a fresh read today. All of a day's changes
+  // go in one issue, since an upgrade usually touches every pool at once.
+  if (prev.contracts && next.contracts && next.sources.contracts && next.sources.contracts.ok) {
+    const changes = [];
+    for (const c of next.contracts) {
+      const p = prev.contracts.find(x => x.chain === c.chain && x.proxy === c.proxy);
+      if (!p) continue;
+      const where = `${CHAIN_NAMES[c.chain] || c.chain} ${c.kind}`;
+      const link = a => `${EXPLORER_ADDR[c.chain] || ''}${a}`;
+      if (p.implementation && c.implementation && p.implementation !== c.implementation) {
+        changes.push({ short: `code changed on the ${where}`, line: `- **${where}** (${link(c.proxy)}) runs new code. Before: ${link(p.implementation)}. Now: ${link(c.implementation)}.` });
+      }
+      if (p.adminOwner && c.adminOwner && p.adminOwner !== c.adminOwner) {
+        changes.push({ short: `upgrade key moved on the ${where}`, line: `- **${where}** (${link(c.proxy)}): control of upgrades moved. Before: ${link(p.adminOwner)}. Now: ${link(c.adminOwner)}.` });
+      }
+    }
+    if (changes.length) {
+      const title = changes.length === 1 ? `Betting pool ${changes[0].short}` : `Betting pool contracts changed (${changes.length} changes)`;
+      await gh('/issues', 'POST', { title: `[OVER watch] ${title}`, body: `${changes.map(c => c.line).join('\n')}\n\nWorth checking the governance forum for what changed.\n\n[Open OVER watch](${PAGE_URL})\n\n${marker('contracts:' + new Date(next.generatedAt * 1000).toISOString().slice(0, 10))}` });
+      sent.push(title);
+    }
+  }
+
   // New votes: only proposals created after the last good governance read, so a gap or an odd
   // reply can never make old proposals look new.
   const since = prev.sources && prev.sources.governance && prev.sources.governance.asOf;
@@ -404,6 +540,9 @@ async function main(now, OUT) {
   const supply = settle('supply', supplyFresh, prev && prev.supply);
   const liq = settle('liquidity', liquidity, prev && prev.liquidity);
   const gov = settle('governance', governance, prev && prev.governance);
+  const contractsFresh = await step('pool contracts', contractWatch);
+  const contracts = settle('contracts', contractsFresh ? carryContracts(prev && prev.contracts, contractsFresh, now) : null, prev && prev.contracts);
+  const capital = await step('betting money', capitalSnapshot);
 
   // Today's reading of the house's stablecoins goes into history first, so the checks and the
   // money reconciliation see it. History keeps only fresh readings.
@@ -454,6 +593,8 @@ async function main(now, OUT) {
     supply,
     liquidity: liq,
     governance: gov,
+    contracts,
+    capital,
     checks,
     errors: ctx.errors,
     alertDetail: { houseOver: fresh('supply') ? (moves => moves.length ? `Treasury wallets that moved since the last reading:\n- ${moves.join('\n- ')}` : null)(walletMoves(prev && prev.supply, supply)) : null }
@@ -478,6 +619,9 @@ async function main(now, OUT) {
   if (pools) ctx.log(`Betting pools${fresh('pools') ? '' : ' (carried over)'}: ${money(pools.total)} idle USDC (${Object.entries(pools.chains).map(([c, v]) => `${c} ${money(v.usdc)} in round ${v.round}`).join(', ')})`);
   if (flows.ready) ctx.log(`Money in/out over ${flows.days} days: result ${money(flows.result)}, buybacks ${money(flows.buys)}, stablecoins ${money(flows.change)}, other ${money(flows.other)}`);
   if (liq) ctx.log(`Liquidity: ${money(liq.totalUsd)} in ${liq.pools.length} pools`);
+  if (capital) for (const [kind, chains] of Object.entries(capital)) for (const [c, v] of Object.entries(chains)) {
+    ctx.log(`Betting money (${kind}, ${c}): ${v.error ? 'failed: ' + v.error : `round ${v.round}; ${v.pools.map(p => `r${p.round}${p.round === 1 ? ' (default)' : ''} ${Math.round(p.amount)} [${p.bets} bets]`).join(', ')}; open bets ${v.open.skipped || `${v.open.open}/${v.open.bets} holding ${Math.round(v.open.held || 0)} (stakes ${v.open.stakes == null ? '?' : Math.round(v.open.stakes)})`}`}`);
+  }
   if (sent && sent.length) ctx.log('Alerts:', sent.join(' | '));
   if (ctx.errors.length) ctx.log('Errors:', ctx.errors.join(' | '));
   return { next, history, sent: sent || [], stats, flows, ok: fresh('revenue') || fresh('treasury') };

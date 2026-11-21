@@ -9,8 +9,9 @@ A live tracker for [Overtime](https://www.overtime.io/) ($OVER): treasury stable
 A GitHub Action (`.github/workflows/snapshot.yml`) runs `scripts/snapshot.mjs` once a day at 04:17 UTC, and whenever the script or `lib/` changes. It collects:
 
 - **House result, buybacks and treasury** from DefiLlama's public API.
-- **Betting-pool capital** straight from the USDC sportsbook pools on Optimism, Arbitrum and Base.
-- **Supply** straight from the OVER contracts on Ethereum, Optimism, Arbitrum and Base through public RPCs, with the top holders from Blockscout to find the Chainlink bridge pool on Ethereum.
+- **Betting-pool capital** straight from the USDC sportsbook pools on Optimism, Arbitrum and Base. The job also measures, without yet using in any figure, where else the house's betting money sits: pools for later rounds, the default pool (futures and parlays spanning rounds) and open bets, read in batches through Multicall3.
+- **Who controls the pools.** The betting pools are upgradeable (EIP-1967) proxies. Their code and the owner of their upgrade key are read daily.
+- **Supply** straight from the OVER contracts on Ethereum, Optimism, Arbitrum and Base through public RPCs, with the top holders from Blockscout to find the Chainlink bridge pool on Ethereum. The holders table labels Overtime's admin multisig (read onchain as the owner of the pools' upgrade key), DEX pools and Safe multisigs, and says which chains it covers.
 - **Liquidity** from DexScreener.
 - **Governance** from the `thalesgov.eth` space on Snapshot.
 - **Price and market cap** from CoinGecko.
@@ -35,7 +36,7 @@ The reconciliation compares, over up to 30 days of those readings, what the hous
 
 Five checks run every day: the house bankroll, the house-result trend, **buyback cover** (the 90-day house result divided by buybacks: Healthy from 1.5×, Alert below 1×, with 30 and 7 days and the weekly record since the method change shown for context, since a sportsbook's week is noisy), the **buyback rate** (last 7 days against the 30 before; a cut or a pause turns it amber or red) and **treasury OVER** (OVER held by the treasury wallets plus the OVER betting pools, over 7 days). OVER moving between the wallets and the pools doesn't count as a change. A line under the headline sums up all five, worst first, and each check opens with one line on why it matters, for readers new to the case.
 
-When a thesis check gets worse (Healthy → Watch → Alert), the job opens an issue in this repo, and it closes that issue when the check is Healthy again. Checks running on stale data, or not yet comparable, never alert. A treasury OVER alert lists the wallets that moved and by how much. A buyback raise of 20% or more gets its own one-off issue. It also opens an issue for every new Snapshot vote, saying who votes on it. GitHub emails you about new issues in your own repos, so watching the repo is enough.
+When a thesis check gets worse (Healthy → Watch → Alert), the job opens an issue in this repo, and it closes that issue when the check is Healthy again. Checks running on stale data, or not yet comparable, never alert. A treasury OVER alert lists the wallets that moved and by how much. A buyback raise of 20% or more gets its own one-off issue. A change to a betting pool's code, or to who holds its upgrade key, opens one issue listing every change that day. It also opens an issue for every new Snapshot vote, saying who votes on it. GitHub emails you about new issues in your own repos, so watching the repo is enough.
 
 ## Tuning
 
