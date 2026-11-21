@@ -45,6 +45,7 @@ export function makeWorld(over = {}) {
     adminOwner: '0xef2b0a2ffcdcd3b53d81800d19a543136f26a6b8',
     defaultUsdc: 50_000,             // per chain, in the default pool (round 1)
     defaultBets: 1234,               // bets listed in the default round, all settled
+    blockscoutKey: 'proapi_test_secret',
     openBets: [{ held: 1_000, stake: 300 }, { held: 500, stake: 100 }, { held: 0, stake: 50 }], // current round, per chain and kind
     fail: new Set(),                 // e.g. 'buybacks', 'revenue-empty', 'revenue-stale', 'gov-empty', 'pool-usdc', 'bridge'
     issues: [],                      // what the job posted to GitHub
@@ -79,6 +80,12 @@ export function makeWorld(over = {}) {
       });
     }
     if (url.includes('coingecko')) return json({ overtime: { usd: 0.18, usd_market_cap: 9_700_000, usd_24h_change: 1.2 } });
+    if (url.includes('api.blockscout.com')) {
+      const auth = (opts.headers || {}).authorization || '';
+      if (auth !== `Bearer ${w.blockscoutKey}`) return new Response('unauthorized', { status: 401 });
+      if (w.fail.has('blockscout-keyed')) return new Response('down', { status: 503 });
+      return json({ items: [{ address: { hash: '0x' + '6'.repeat(40), name: null, is_contract: false }, value: String(250_000n * 10n ** 18n) }] });
+    }
     if (url.includes('blockscout')) {
       if (!url.includes('eth.blockscout')) return new Response('forbidden', { status: 403 });
       return json({ items: [{ address: { hash: BRIDGE, name: 'LockReleaseTokenPool', is_contract: true }, value: String(BigInt(w.locked) * 10n ** 18n) }] });
@@ -181,7 +188,7 @@ export async function runDay(w, outDir, dayOffset = 0) {
   return run({
     now: w.now,
     fetchImpl: w.fetch,
-    env: { GITHUB_TOKEN: 'test', GITHUB_REPOSITORY: 'me/overwatch' },
+    env: { GITHUB_TOKEN: 'test', GITHUB_REPOSITORY: 'me/overwatch', ...(w.env || {}) },
     outDir,
     retryDelay: 0,
     log: () => {},

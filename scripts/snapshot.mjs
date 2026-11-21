@@ -123,8 +123,23 @@ const totalSupply = (chain, token) => ethCall(chain, token, '0x18160ddd').then(t
 const balanceOf = (chain, token, who) =>
   ethCall(chain, token, '0x70a08231' + who.toLowerCase().replace(/^0x/, '').padStart(64, '0')).then(toTokens);
 
+// Top holders come from Blockscout. Its public explorers block scripts more and more, so with a
+// BLOCKSCOUT_API_KEY (free at dev.blockscout.com) the job uses Blockscout's keyed API first and the
+// public explorer second. The key goes in a header and is scrubbed from any error message.
+const CHAIN_ID = { ethereum: 1, optimism: 10, arbitrum: 42161, base: 8453 };
 async function topHolders(chain, token) {
-  const j = await getJSON(`${BLOCKSCOUT[chain]}/api/v2/tokens/${token}/holders`, {}, 2);
+  const key = ctx.env.BLOCKSCOUT_API_KEY;
+  const path = `/api/v2/tokens/${token}/holders`;
+  const scrub = m => (key ? String(m).split(key).join('***') : String(m));
+  let j = null, keyed = null;
+  if (key) {
+    try { j = await getJSON(`https://api.blockscout.com/${CHAIN_ID[chain]}${path}`, { headers: { authorization: `Bearer ${key}` } }, 2); }
+    catch (e) { keyed = `keyed API: ${scrub(e.message)}`; }
+  }
+  if (!j) {
+    try { j = await getJSON(`${BLOCKSCOUT[chain]}${path}`, {}, 2); }
+    catch (e) { throw new Error([keyed, `public explorer: ${scrub(e.message)}`].filter(Boolean).join('; ')); }
+  }
   return (j.items || []).slice(0, 15).map(h => {
     const a = h.address || {};
     const impl = Array.isArray(a.implementations) && a.implementations[0] ? a.implementations[0].name : null;

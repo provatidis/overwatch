@@ -39,6 +39,8 @@ jobs:
         run: node scripts/snapshot.mjs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: a free key from dev.blockscout.com for holder lists on every chain.
+          BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
 
       - name: Commit data
         run: |

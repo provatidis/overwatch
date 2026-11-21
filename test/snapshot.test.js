@@ -218,3 +218,17 @@ test('too many listed bets are counted, not read, and the rest still loads', asy
   assert.equal(r.next.sources.betting.ok, false);
   assert.equal(r.next.betting, null);
 });
+
+test('with a Blockscout key every chain gets a holder list, and the key never shows', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  const without = await runDay(w, dir, 0);
+  assert.match(without.next.supply.chains.base.holdersError, /403/);
+  w.env = { BLOCKSCOUT_API_KEY: w.blockscoutKey };
+  const r = await runDay(w, dir, 1);
+  for (const c of ['ethereum', 'optimism', 'arbitrum', 'base']) assert.ok(Array.isArray(r.next.supply.chains[c].holders), c);
+  w.fail.add('blockscout-keyed');
+  const down = await runDay(w, dir, 2);
+  assert.ok(Array.isArray(down.next.supply.chains.ethereum.holders));   // public explorer still answers
+  assert.match(down.next.supply.chains.base.holdersError, /keyed API: HTTP 503.*public explorer: HTTP 403/);
+  assert.ok(!JSON.stringify(down.next).includes(w.blockscoutKey));
+});
