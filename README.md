@@ -2,7 +2,7 @@
 
 A live tracker for [Overtime](https://www.overtime.io/) ($OVER): treasury stablecoins, the house result, buybacks and buyback yield, supply and free float, DEX liquidity and governance votes, with five thesis checks summed up under the headline.
 
-[provatidis.com/overwatch](https://provatidis.com/overwatch/)
+[overwatch.day](https://overwatch.day/)
 
 ## How it works
 

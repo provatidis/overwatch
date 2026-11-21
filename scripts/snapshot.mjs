@@ -13,7 +13,7 @@ import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overRe
 import { money, tokens, fmtDate } from '../lib/format.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PAGE_URL = 'https://provatidis.com/overwatch/';
+const PAGE_URL = 'https://overwatch.day/';
 const UA = 'overwatch-snapshot (+https://github.com/provatidis/overwatch)';
 // Per-run context, so tests can swap the network, environment and logging.
 let ctx = { fetch: (...a) => globalThis.fetch(...a), env: process.env, errors: [], retryDelay: 1500, log: console.log, logError: console.error };
