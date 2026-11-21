@@ -30,7 +30,7 @@ test('a normal first run publishes everything and alerts nothing', async () => {
     }
   });
   assert.equal(r.history.at(-1).bettingUsdc, 656_300);
-  assert.equal(r.history.at(-1).def, 2);
+  assert.equal(r.history.at(-1).def, 3);
   assert.equal(r.stats.lastT, Math.floor(T0 / DAY) * DAY - DAY); // today is left out
   assert.equal(w.issues.length, 0);
 });
@@ -145,7 +145,7 @@ test('OVER leaving the house alerts with the wallet; a move into the OVER pools 
   w.wallets.ethereum[ADDR.SAFE] -= 1_500_000;
   const r = await runDay(w, dir, 3);
   assert.equal(check(r, 'houseOver').state, 'alert');
-  assert.deepEqual(titles(w), ['[OVER watch] Treasury OVER: Healthy → Alert']);
+  assert.deepEqual(titles(w), ['[OVER watch] House OVER: Healthy → Alert']);
   assert.match(w.issues[0].body, /0xdac0…b0fa on Ethereum: −1\.50M OVER/);
 });
 
@@ -231,4 +231,30 @@ test('with a Blockscout key every chain gets a holder list, and the key never sh
   assert.ok(Array.isArray(down.next.supply.chains.ethereum.holders));   // public explorer still answers
   assert.match(down.next.supply.chains.base.holdersError, /keyed API: HTTP 503.*public explorer: HTTP 403/);
   assert.ok(!JSON.stringify(down.next).includes(w.blockscoutKey));
+});
+
+test('Overtime’s admin multisigs count as house OVER, and their outflows alert with the wallet', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  for (const c of ['optimism', 'arbitrum', 'base']) w.wallets[c][w.adminOwner] = 700_000;
+  const r = await runDay(w, dir, 0);
+  assert.deepEqual(r.next.errors, []);
+  assert.equal(Math.round(r.next.admin.total), 2_100_000);
+  assert.equal(Math.round(r.next.supply.adminOver), 2_100_000);
+  assert.equal(Math.round(r.next.supply.house), 15_654_317 + 2_100_000 + 778_300);
+  assert.equal(r.history.at(-1).adminOver, 2_100_000);
+  await runDay(w, dir, 1);
+  w.wallets.optimism[w.adminOwner] -= 600_000;
+  const out = await runDay(w, dir, 2);
+  assert.equal(check(out, 'houseOver').state, 'alert');
+  assert.match(w.issues.at(-1).body, /Admin multisig 0xef2b…a6b8 on Optimism: −600K OVER/);
+});
+
+test('ordinary wallets add up their OVER on every chain, Base included', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  w.env = { BLOCKSCOUT_API_KEY: w.blockscoutKey };
+  const whale = '0x' + '6'.repeat(40);
+  w.wallets.optimism[whale] = 250_000;
+  w.wallets.base[whale] = 100_000;
+  const r = await runDay(w, dir, 0);
+  assert.deepEqual(r.next.supply.wallets, [{ address: whale, chains: { optimism: 250_000, base: 100_000 }, total: 350_000 }]);
 });

@@ -121,16 +121,26 @@ test('buyback rate: cut, pause and raise', () => {
   assert.match(raised.text, /step up/);
 });
 
-test('treasury OVER: pending on day one, alert on an outflow, quiet on a move into the pools', () => {
-  const h = (date, wallets, pools) => ({ date, def: 2, treasuryOver: wallets, bettingOver: pools, houseOver: wallets + pools });
+test('house OVER: pending on day one, alert on an outflow, quiet on a move into the pools', () => {
+  const h = (date, wallets, pools, admin = 2_000_000) => ({ date, def: 3, treasuryOver: wallets, adminOver: admin, bettingOver: pools, houseOver: wallets + admin + pools });
   const one = computeChecks(computeStats({ overReadings: overReadingsFromHistory([h('2026-11-20', 15_000_000, 700_000)]) }));
   assert.equal(check(one, 'houseOver').state, 'pending');
+  assert.match(check(one, 'houseOver').text, /2\.00M in Overtime’s admin multisigs/);
 
   const out = computeChecks(computeStats({ overReadings: overReadingsFromHistory([h('2026-11-20', 15_000_000, 700_000), h('2026-11-21', 13_500_000, 700_000)]) }));
   assert.equal(check(out, 'houseOver').state, 'alert');
 
   const moved = computeChecks(computeStats({ overReadings: overReadingsFromHistory([h('2026-11-20', 15_000_000, 700_000), h('2026-11-21', 14_000_000, 1_700_000)]) }));
   assert.equal(check(moved, 'houseOver').state, 'good');
+
+  // OVER leaving an admin multisig is OVER leaving the house.
+  const adminOut = computeChecks(computeStats({ overReadings: overReadingsFromHistory([h('2026-11-20', 15_000_000, 700_000), h('2026-11-21', 15_000_000, 700_000, 500_000)]) }));
+  assert.equal(check(adminOut, 'houseOver').state, 'alert');
+  assert.match(check(adminOut, 'houseOver').text, /admin multisigs −1\.50M/);
+
+  // Readings made before the admin multisigs were counted are left out, not compared.
+  const old = { date: '2026-11-19', def: 2, treasuryOver: 15_000_000, bettingOver: 700_000, houseOver: 15_700_000 };
+  assert.equal(overReadingsFromHistory([old, h('2026-11-21', 15_000_000, 700_000)]).length, 1);
 });
 
 test('bankroll stays like for like: treasury only until 30 days of pool readings exist', () => {

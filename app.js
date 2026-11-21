@@ -371,7 +371,7 @@ function verdict(parent, checks) {
 // ---------- State ----------
 const state = { range: 365, mode: 'month', data: null, now: null, rev: null, buy: null, treasury: null, price: null, history: [], loaded: false };
 
-const SOURCE_NAMES = { revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', overPools: 'OVER pools', betting: 'betting money', contracts: 'pool contracts', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
+const SOURCE_NAMES = { admin: 'admin multisigs', revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', overPools: 'OVER pools', betting: 'betting money', contracts: 'pool contracts', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
 const staleSources = () => Object.entries((state.data && state.data.sources) || {}).filter(([, v]) => !v.ok);
 const sourceDate = name => { const v = state.data && state.data.sources && state.data.sources[name]; return v && v.asOf ? fmtDate(v.asOf) : 'an earlier day'; };
 
@@ -526,7 +526,7 @@ function renderSupply() {
     : `${pct(sup.burned / sup.max)} of the maximum. Daily burn shows from the second snapshot.`;
   tile(tiles, 'Burned so far', tokens(sup.burned), { unit: 'OVER', note: burnNote });
   if (ok(sup.house)) {
-    tile(tiles, 'Held by the house', tokens(sup.house), { unit: 'OVER', note: `${pct(sup.house / sup.circulating)} of circulating: ${tokens(sup.treasury)} in treasury wallets, ${tokens(sup.overPools)} in the OVER betting pools and open bets` });
+    tile(tiles, 'Held by the house', tokens(sup.house), { unit: 'OVER', note: `${pct(sup.house / sup.circulating)} of circulating: ${tokens(sup.treasury)} in treasury wallets, ${ok(sup.adminOver) ? `${tokens(sup.adminOver)} in Overtime’s admin multisigs, ` : ''}${tokens(sup.overPools)} in the OVER betting pools and open bets` });
   } else {
     tile(tiles, 'Held by the treasury', tokens(sup.treasury), { unit: 'OVER', note: `${pct(sup.treasury / sup.circulating)} of circulating supply. The OVER betting pools didn’t load.` });
   }
@@ -551,32 +551,46 @@ function renderSupply() {
       notes.push(`DefiLlama values the treasury’s own OVER at ${money(ownUsd)}, more than all the OVER on Ethereum outside the bridge pool and burn address, so it must include the ${tokens(eth.locked)} locked in Chainlink’s bridge pool. Those back the tokens on the other chains and don’t belong to the treasury.`);
     }
   }
+  if (ok(sup.adminOver) && sup.adminOver > 0) notes.push(`The house’s OVER includes ${tokens(sup.adminOver)} in Overtime’s admin multisigs, the wallets that hold the betting pools’ upgrade key. DefiLlama doesn’t count them as treasury, but Overtime controls them, so they aren’t free float here.`);
   $('supply-note').textContent = notes.join(' ');
 
   const op = (state.data.betting && state.data.betting.over && state.data.betting.over.chains) || {};
-  const rows = Object.entries(sup.chains || {}).map(([chain, c]) => [chainName(chain), tokens(c.total), tokens(c.locked), tokens(c.dead), tokens(c.treasury), op[chain] ? tokens(op[chain].idle + op[chain].onBets) : '—', tokens(c.total - c.locked - c.dead)]);
-  table($('supply-table'), ['Chain', 'Contract supply', 'Locked in bridge', 'Burn addresses', 'Treasury wallets', 'OVER betting pools', 'Circulating'], rows);
+  const adm = (state.data.admin && state.data.admin.chains) || {};
+  const adminOn = chain => (adm[chain] ? Object.values(adm[chain]).reduce((a, b) => a + b, 0) : null);
+  const rows = Object.entries(sup.chains || {}).map(([chain, c]) => [chainName(chain), tokens(c.total), tokens(c.locked), tokens(c.dead), tokens(c.treasury), adminOn(chain) != null ? tokens(adminOn(chain)) : '—', op[chain] ? tokens(op[chain].idle + op[chain].onBets) : '—', tokens(c.total - c.locked - c.dead)]);
+  table($('supply-table'), ['Chain', 'Contract supply', 'Locked in bridge', 'Burn addresses', 'Treasury wallets', 'Admin multisigs', 'OVER betting pools', 'Circulating'], rows);
 
-  // Largest holders that aren't the bridge, a burn address, a listed treasury wallet or one of the
-  // house's betting pools (every round, read onchain): those are already counted as the house's.
+  // Largest holders outside the house: not the bridge, a burn address, a treasury wallet, one of
+  // Overtime's admin multisigs or one of its betting pools (every round, read onchain).
   const cap = state.data.capital || {};
   const bettingPools = [...Object.values(cap.usdc || {}), ...Object.values(cap.over || {})].flatMap(v => (v && v.pools ? v.pools.map(p => p.address) : []));
-  const skip = new Set([...DEAD, ...OVER.treasury, ...Object.values(OVER.locked).flat(), ...Object.values(OVER.overPools), ...bettingPools].map(a => a.toLowerCase()));
-  const holders = [];
+  const admins = Object.values((state.data.admin && state.data.admin.chains) || {}).flatMap(o => Object.keys(o));
+  const skip = new Set([...DEAD, ...OVER.treasury, ...Object.values(OVER.locked).flat(), ...Object.values(OVER.overPools), ...bettingPools, ...admins].map(a => a.toLowerCase()));
+  const isWallet = h => !h.contract || /7702|DeleGator/i.test(h.name || '');
+  const listed = [];
   for (const [chain, c] of Object.entries(sup.chains || {})) {
     for (const h of c.holders || []) {
       if (!h.address || skip.has(h.address) || (c.lockedBy || []).some(l => l.address === h.address)) continue;
-      holders.push({ ...h, chain });
+      listed.push({ ...h, chain });
     }
   }
-  holders.sort((a, b) => b.tokens - a.tokens);
-  const top = holders.slice(0, 8);
+  // Ordinary wallets: one row each, with their OVER on every chain added up (read onchain, Base
+  // included). Contracts stay one row per chain, since the same address can be someone else's.
+  const combined = Array.isArray(sup.wallets);
+  const rowsIn = combined
+    ? [
+      ...sup.wallets.filter(w => !skip.has(w.address)).map(w => ({ address: w.address, chains: Object.keys(w.chains), tokens: w.total, wallet: true, name: (listed.find(h => h.address === w.address) || {}).name, contract: (listed.find(h => h.address === w.address) || {}).contract })),
+      ...listed.filter(h => !isWallet(h)).map(h => ({ ...h, chains: [h.chain] }))
+    ]
+    : listed.map(h => ({ ...h, chains: [h.chain] }));
+  rowsIn.sort((a, b) => b.tokens - a.tokens);
+  const top = rowsIn.slice(0, 8);
   const wrap = $('holders-table');
   const label = holderLabeler();
   if (top.length) {
-    table(wrap, ['Holder', 'What it is', 'Chain', 'OVER', 'Share of circulating'], top.map(h => [
-      { href: (EXPLORERS[h.chain] || '') + h.address, text: `${h.address.slice(0, 6)}…${h.address.slice(-4)}` },
-      label(h), chainName(h.chain), tokens(h.tokens), pct(h.tokens / sup.circulating)
+    table(wrap, ['Holder', 'What it is', combined ? 'Chains' : 'Chain', 'OVER', 'Share of circulating'], top.map(h => [
+      { href: (EXPLORERS[h.chains[0]] || '') + h.address, text: `${h.address.slice(0, 6)}…${h.address.slice(-4)}` },
+      label({ ...h, chain: h.chains[0] }), h.chains.map(chainName).join(', '), tokens(h.tokens), pct(h.tokens / sup.circulating)
     ]), { text: [1, 2] });
   } else {
     empty(wrap, 'Holder lists weren’t available in this snapshot.');
@@ -588,9 +602,10 @@ function renderSupply() {
   const missing = missingRaw.map(([k]) => chainName(k));
   const paywalled = missingRaw.length > 0 && missingRaw.every(([, c]) => /\b402\b/.test(c.holdersError || ''));
   const list = names => names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
-  $('holders-note').textContent = `Top wallets${covered.length ? ` on ${list(covered)}` : ''} that aren’t the bridge pool, a burn address, a listed treasury wallet or one of the house’s betting pools.`
-    + (missing.length ? ` ${list(missing)} ${missing.length === 1 ? 'isn’t' : 'aren’t'} included: ${paywalled
-      ? `Blockscout only serves ${missing.length === 1 ? 'its' : 'their'} holder list${missing.length === 1 ? '' : 's'} on a paid plan.`
+  $('holders-note').textContent = `The largest holders outside the house: not the bridge pool, a burn address, a treasury wallet, an Overtime admin multisig or one of the house’s betting pools. ${covered.length ? `They come from the holder lists on ${list(covered)}.` : ''}`
+    + (combined ? ' An ordinary wallet shows its OVER on all four chains added up, Base included, read straight from each chain; contracts are listed per chain.' : '')
+    + (missing.length ? ` ${list(missing)}’s own list ${missing.length === 1 ? 'isn’t' : 'aren’t'} included: ${paywalled
+      ? `Blockscout only serves ${missing.length === 1 ? 'its' : 'their'} holder list${missing.length === 1 ? '' : 's'} on a paid plan, so a wallet holding OVER only there can be missing.`
       : `the block explorer didn’t return ${missing.length === 1 ? 'its' : 'their'} holder list${missing.length === 1 ? '' : 's'} today.`}` : '')
     + ' “Wallet” means an ordinary account; who controls it isn’t public.';
 }

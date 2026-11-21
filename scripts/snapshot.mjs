@@ -353,9 +353,53 @@ async function overPoolSnapshot() {
 }
 
 // Treasury wallets whose OVER balance moved by 10K or more since the previous good reading.
-function walletMoves(prevSupply, supply) {
+// Overtime's admin multisigs: whoever holds each chain's betting-pool upgrade key (read onchain as
+// the owner of the pools' ProxyAdmin). Their OVER counts as the house's: Overtime controls it.
+async function adminSnapshot(contractsList) {
+  const byChain = {};
+  for (const c of contractsList || []) if (c.adminOwner) (byChain[c.chain] ||= new Set()).add(c.adminOwner.toLowerCase());
+  if (!Object.keys(byChain).length) throw new Error('no upgrade-key owners known');
+  const treasury = new Set(OVER.treasury.map(a => a.toLowerCase()));
+  const out = { total: 0, chains: {} };
+  for (const [chain, owners] of Object.entries(byChain)) {
+    for (const a of owners) {
+      if (treasury.has(a)) continue; // already counted as a treasury wallet
+      const bal = await balanceOf(chain, OVER.tokens[chain], a);
+      (out.chains[chain] ||= {})[a] = bal;
+      out.total += bal;
+    }
+  }
+  return out;
+}
+
+// Ordinary wallets (not contracts) on any chain's holder list, with their OVER on all four chains
+// added up, Base included, read straight from each chain. The same address is the same owner on
+// every chain for an ordinary wallet; for a contract it needn't be, so contracts aren't combined.
+const isWallet = h => !h.contract || /7702|DeleGator/i.test(h.name || '');
+async function walletTotals(chains, exclude) {
+  const list = [...new Set(Object.values(chains).flatMap(c => (c.holders || []).filter(h => isWallet(h) && !exclude.has(h.address)).map(h => h.address)))];
+  if (!list.length) return [];
+  const out = list.map(address => ({ address, chains: {}, total: 0 }));
+  for (const [chain, token] of Object.entries(OVER.tokens)) {
+    const bals = await readMany(chain, list.map(a => ({ to: token, data: SEL.balanceOf + addrWord(a) })));
+    if (bals.some(b => b == null)) throw new Error(`a wallet balance on ${chain} didn’t load`);
+    bals.forEach((b, i) => { const v = toTokens(b); if (v > 0) { out[i].chains[chain] = v; out[i].total += v; } });
+  }
+  return out.sort((a, b) => b.total - a.total).slice(0, 20);
+}
+
+function walletMoves(prevSupply, supply, prevAdmin, admin) {
   if (!prevSupply || !supply) return [];
   const moves = [];
+  for (const [chain, now] of Object.entries((admin && admin.chains) || {})) {
+    const before = prevAdmin && prevAdmin.chains && prevAdmin.chains[chain];
+    if (!before) continue;
+    for (const [addr, bal] of Object.entries(now)) {
+      if (!(addr in before)) continue;
+      const d = bal - before[addr];
+      if (Math.abs(d) >= 10_000) moves.push(`Admin multisig ${addr.slice(0, 6)}…${addr.slice(-4)} on ${CHAIN_NAMES[chain] || chain}: ${d > 0 ? '+' : '−'}${tokens(Math.abs(d))} OVER`);
+    }
+  }
   for (const [chain, c] of Object.entries(supply.chains || {})) {
     const before = prevSupply.chains && prevSupply.chains[chain] && prevSupply.chains[chain].treasuryBy;
     if (!before) continue;
@@ -593,19 +637,31 @@ async function main(now, OUT) {
   const bettingFresh = summarizeCapital(capital);
   if (capital && !bettingFresh) ctx.errors.push('betting money: not every pool was read in full');
   const betting = settle('betting', bettingFresh, prev && prev.betting);
-  // The house's own OVER (treasury wallets plus its OVER in the betting pools, every round, and its
-  // share of open OVER bets) isn't free float.
-  if (supplyFresh && betting) {
+  const contractsFresh = await step('pool contracts', contractWatch);
+  const contracts = settle('contracts', contractsFresh ? carryContracts(prev && prev.contracts, contractsFresh, now) : null, prev && prev.contracts);
+  const admin = settle('admin', contracts ? await step('admin multisigs', () => adminSnapshot(contracts)) : null, prev && prev.admin);
+  // The house's own OVER isn't free float: the treasury wallets, Overtime's admin multisigs, and its
+  // OVER in the betting pools (every round, plus its share of open OVER bets).
+  if (supplyFresh && betting && admin) {
+    supplyFresh.adminOver = admin.total;
     supplyFresh.overPools = betting.over.total;
-    supplyFresh.house = supplyFresh.treasury + betting.over.total;
+    supplyFresh.house = supplyFresh.treasury + admin.total + betting.over.total;
     supplyFresh.float = supplyFresh.circulating - supplyFresh.house;
     supplyFresh.floatUsd = priceData && priceData.usd ? supplyFresh.float * priceData.usd : null;
+  }
+  if (supplyFresh) {
+    const lower = a => a.toLowerCase();
+    const exclude = new Set([
+      ...DEAD, ...OVER.treasury, ...Object.values(OVER.locked).flat(), ...Object.values(OVER.overPools),
+      ...Object.values(supplyFresh.chains).flatMap(c => (c.lockedBy || []).map(l => l.address)),
+      ...Object.values((admin && admin.chains) || {}).flatMap(o => Object.keys(o)),
+      ...[...Object.values((capital && capital.usdc) || {}), ...Object.values((capital && capital.over) || {})].flatMap(v => (v && v.pools ? v.pools.map(p => p.address) : []))
+    ].map(lower));
+    supplyFresh.wallets = await step('wallet totals', () => walletTotals(supplyFresh.chains, exclude));
   }
   const supply = settle('supply', supplyFresh, prev && prev.supply);
   const liq = settle('liquidity', liquidity, prev && prev.liquidity);
   const gov = settle('governance', governance, prev && prev.governance);
-  const contractsFresh = await step('pool contracts', contractWatch);
-  const contracts = settle('contracts', contractsFresh ? carryContracts(prev && prev.contracts, contractsFresh, now) : null, prev && prev.contracts);
 
   // Today's reading of the house's stablecoins goes into history first, so the checks and the
   // money reconciliation see it. History keeps only fresh readings.
@@ -618,7 +674,7 @@ async function main(now, OUT) {
     price: fresh('price') ? priceData.usd : null,
     mcap: fresh('price') ? priceData.mcap : null,
     treasuryStable: fresh('treasury') && treasuryNow ? Math.round(treasuryNow.stable) : null,
-    def: 2,  // rows before this counted only the current round's pools
+    def: 3,  // 2: betting money counts every pool and open bets; 3: house OVER counts the admin multisigs
     poolUsdc: fresh('pools') ? pools.total : null,
     bettingUsdc: fresh('betting') ? betting.usdc.total : null,
     bettingOver: fresh('betting') ? betting.over.total : null,
@@ -626,7 +682,8 @@ async function main(now, OUT) {
     burned: fresh('supply') ? Math.round(supply.burned) : null,
     treasuryOver: fresh('supply') ? Math.round(supply.treasury) : null,
     poolOver: fresh('overPools') ? overPools.total : null,
-    houseOver: fresh('supply') && fresh('betting') ? Math.round(supply.treasury + betting.over.total) : null,
+    adminOver: fresh('admin') ? Math.round(admin.total) : null,
+    houseOver: fresh('supply') && fresh('betting') && fresh('admin') ? Math.round(supply.treasury + admin.total + betting.over.total) : null,
     liquidityUsd: fresh('liquidity') ? liq.totalUsd : null,
     volume24h: fresh('liquidity') ? liq.volume24h : null,
     checks: {}
@@ -660,11 +717,12 @@ async function main(now, OUT) {
     liquidity: liq,
     governance: gov,
     contracts,
+    admin,
     betting,
     capital,
     checks,
     errors: ctx.errors,
-    alertDetail: { houseOver: fresh('supply') ? (moves => moves.length ? `Treasury wallets that moved since the last reading:\n- ${moves.join('\n- ')}` : null)(walletMoves(prev && prev.supply, supply)) : null }
+    alertDetail: { houseOver: fresh('supply') ? (moves => moves.length ? `House wallets that moved since the last reading:\n- ${moves.join('\n- ')}` : null)(walletMoves(prev && prev.supply, supply, prev && prev.admin, fresh('admin') ? admin : null)) : null }
   };
 
   await writeFile(path.join(OUT, 'latest.json'), JSON.stringify(next));
