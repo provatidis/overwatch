@@ -22,21 +22,21 @@
  },
  {
   "date": "2026-11-21",
-  "price": 0.172168,
-  "mcap": 9285321.35582008,
+  "price": 0.172162,
+  "mcap": 9285438.399198044,
   "treasuryStable": 2451771,
-  "poolUsdc": 479757,
+  "poolUsdc": 477412,
   "circulating": 53933062,
   "burned": 15486938,
   "treasuryOver": 15654317,
   "poolOver": 778561,
   "houseOver": 16432878,
-  "liquidityUsd": 616322,
+  "liquidityUsd": 616328,
   "volume24h": 28324,
   "checks": {
    "bankroll": "good",
    "trend": "pending",
-   "share": "good",
+   "cover": "good",
    "rate": "good",
    "houseOver": "good"
   }
