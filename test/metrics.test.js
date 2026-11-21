@@ -122,7 +122,7 @@ test('buyback rate: cut, pause and raise', () => {
 });
 
 test('treasury OVER: pending on day one, alert on an outflow, quiet on a move into the pools', () => {
-  const h = (date, wallets, pools) => ({ date, treasuryOver: wallets, poolOver: pools, houseOver: wallets + pools });
+  const h = (date, wallets, pools) => ({ date, def: 2, treasuryOver: wallets, bettingOver: pools, houseOver: wallets + pools });
   const one = computeChecks(computeStats({ overReadings: overReadingsFromHistory([h('2026-11-20', 15_000_000, 700_000)]) }));
   assert.equal(check(one, 'houseOver').state, 'pending');
 
@@ -135,12 +135,12 @@ test('treasury OVER: pending on day one, alert on an outflow, quiet on a move in
 
 test('bankroll stays like for like: treasury only until 30 days of pool readings exist', () => {
   const treasury = series(day(2026, 9, 1), day(2026, 11, 20), 2_000_000).map(p => ({ t: p.t, stable: p.v }));
-  const readings = readingsFromHistory([{ date: '2026-11-20', treasuryStable: 2_000_000, poolUsdc: 500_000 }]);
+  const readings = readingsFromHistory([{ date: '2026-11-20', treasuryStable: 2_000_000, bettingUsdc: 500_000 }]);
   const s = computeStats({ treasury, readings });
   assert.equal(s.bankrollMode, 'treasury');
   assert.equal(s.bankrollNow, 2_000_000);
 
-  const hist = [{ date: '2026-10-20', treasuryStable: 2_000_000, poolUsdc: 600_000 }, { date: '2026-11-20', treasuryStable: 2_000_000, poolUsdc: 470_000 }];
+  const hist = [{ date: '2026-10-20', treasuryStable: 2_000_000, bettingUsdc: 600_000 }, { date: '2026-11-20', treasuryStable: 2_000_000, bettingUsdc: 470_000 }];
   const full = computeStats({ treasury, readings: readingsFromHistory(hist) });
   assert.equal(full.bankrollMode, 'full');
   assert.equal(Math.round(full.change30 * 1000), -50); // 2.47M vs 2.6M
@@ -148,8 +148,8 @@ test('bankroll stays like for like: treasury only until 30 days of pool readings
 
 test('money reconciliation: other flows are what the result minus buybacks does not explain', () => {
   const readings = readingsFromHistory([
-    { date: '2026-11-10', treasuryStable: 2_000_000, poolUsdc: 500_000 },
-    { date: '2026-11-20', treasuryStable: 2_020_000, poolUsdc: 490_000 }
+    { date: '2026-11-10', treasuryStable: 2_000_000, bettingUsdc: 500_000 },
+    { date: '2026-11-20', treasuryStable: 2_020_000, bettingUsdc: 490_000 }
   ]);
   const rev = series(day(2026, 11, 1), day(2026, 11, 19), 6000);
   const buy = series(day(2026, 11, 1), day(2026, 11, 19), 2000);

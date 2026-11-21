@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { OVER, DEAD, LOCKED_NAME, HOLDER_VALUE, THRESHOLDS, CHAIN_NAMES } from '../lib/config.js';
 import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
-import { money, tokens, fmtDate } from '../lib/format.js';
+import { money, tokens, fmtDate, ok } from '../lib/format.js';
 import { MULTICALL3, encodeAggregate3, decodeAggregate3 } from '../lib/multicall.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -297,6 +297,30 @@ async function capitalSnapshot() {
   return out;
 }
 
+// One figure per currency for the house's betting money: what sits in every round's pool (current,
+// later and default) plus the house's share of open bets (what they hold minus the bettors' stakes,
+// which only become the house's if the bet loses). Null unless every chain was read in full.
+function summarizeCapital(capital) {
+  const sum = kind => {
+    const chains = capital && capital[kind];
+    if (!chains) return null;
+    const out = { idle: 0, defaultPools: 0, onBets: 0, held: 0, stakes: 0, openBets: 0, chains: {} };
+    for (const [c, v] of Object.entries(chains)) {
+      if (!v || v.error || !v.open || v.open.skipped || !ok(v.open.held) || !ok(v.open.stakes)) return null;
+      const idle = v.pools.reduce((a, p) => a + (p.amount || 0), 0);
+      const dflt = (v.pools.find(p => p.round === 1) || {}).amount || 0;
+      const onBets = Math.max(0, v.open.held - v.open.stakes);
+      out.chains[c] = { idle: Math.round(idle), defaultPool: Math.round(dflt), onBets: Math.round(onBets), openBets: v.open.open };
+      out.idle += idle; out.defaultPools += dflt; out.onBets += onBets; out.held += v.open.held; out.stakes += v.open.stakes; out.openBets += v.open.open;
+    }
+    for (const k of ['idle', 'defaultPools', 'onBets', 'held', 'stakes']) out[k] = Math.round(out[k]);
+    out.total = out.idle + out.onBets;
+    return out;
+  };
+  const usdc = sum('usdc'), over = sum('over');
+  return usdc && over ? { usdc, over } : null;
+}
+
 // OVER held by the OVER-collateral betting pools (the current round's pool contract on each chain).
 async function overPoolSnapshot() {
   const out = { chains: {}, total: 0 };
@@ -550,10 +574,15 @@ async function main(now, OUT) {
   priceData = settle('price', priceData, prev && prev.price);
   const supplyFresh = await step('supply', () => supplySnapshot(priceData && priceData.usd));
   const overPools = settle('overPools', await step('OVER pools', overPoolSnapshot), prev && prev.overPools);
-  // The house's own OVER (treasury wallets + OVER pools) isn't free float.
-  if (supplyFresh && sources.overPools.ok) {
-    supplyFresh.overPools = overPools.total;
-    supplyFresh.house = supplyFresh.treasury + overPools.total;
+  const capital = await step('betting money', capitalSnapshot);
+  const bettingFresh = summarizeCapital(capital);
+  if (capital && !bettingFresh) ctx.errors.push('betting money: not every pool was read in full');
+  const betting = settle('betting', bettingFresh, prev && prev.betting);
+  // The house's own OVER (treasury wallets plus its OVER in the betting pools, every round, and its
+  // share of open OVER bets) isn't free float.
+  if (supplyFresh && betting) {
+    supplyFresh.overPools = betting.over.total;
+    supplyFresh.house = supplyFresh.treasury + betting.over.total;
     supplyFresh.float = supplyFresh.circulating - supplyFresh.house;
     supplyFresh.floatUsd = priceData && priceData.usd ? supplyFresh.float * priceData.usd : null;
   }
@@ -562,7 +591,6 @@ async function main(now, OUT) {
   const gov = settle('governance', governance, prev && prev.governance);
   const contractsFresh = await step('pool contracts', contractWatch);
   const contracts = settle('contracts', contractsFresh ? carryContracts(prev && prev.contracts, contractsFresh, now) : null, prev && prev.contracts);
-  const capital = await step('betting money', capitalSnapshot);
 
   // Today's reading of the house's stablecoins goes into history first, so the checks and the
   // money reconciliation see it. History keeps only fresh readings.
@@ -575,12 +603,15 @@ async function main(now, OUT) {
     price: fresh('price') ? priceData.usd : null,
     mcap: fresh('price') ? priceData.mcap : null,
     treasuryStable: fresh('treasury') && treasuryNow ? Math.round(treasuryNow.stable) : null,
+    def: 2,  // rows before this counted only the current round's pools
     poolUsdc: fresh('pools') ? pools.total : null,
+    bettingUsdc: fresh('betting') ? betting.usdc.total : null,
+    bettingOver: fresh('betting') ? betting.over.total : null,
     circulating: fresh('supply') ? Math.round(supply.circulating) : null,
     burned: fresh('supply') ? Math.round(supply.burned) : null,
     treasuryOver: fresh('supply') ? Math.round(supply.treasury) : null,
     poolOver: fresh('overPools') ? overPools.total : null,
-    houseOver: fresh('supply') && fresh('overPools') ? Math.round(supply.treasury + overPools.total) : null,
+    houseOver: fresh('supply') && fresh('betting') ? Math.round(supply.treasury + betting.over.total) : null,
     liquidityUsd: fresh('liquidity') ? liq.totalUsd : null,
     volume24h: fresh('liquidity') ? liq.volume24h : null,
     checks: {}
@@ -614,6 +645,7 @@ async function main(now, OUT) {
     liquidity: liq,
     governance: gov,
     contracts,
+    betting,
     capital,
     checks,
     errors: ctx.errors,
@@ -636,6 +668,7 @@ async function main(now, OUT) {
   if (stats.lastT) ctx.log(`Completed days through ${fmtDate(stats.lastT)}: 30d result ${money(stats.rev30)}, buybacks ${money(stats.buy30)}`);
   if (supply) ctx.log(`Supply${fresh('supply') ? '' : ' (carried over)'}: circulating ${Math.round(supply.circulating)}, treasury ${Math.round(supply.treasury)}`);
   if (overPools) ctx.log(`OVER pools${fresh('overPools') ? '' : ' (carried over)'}: ${tokens(overPools.total)} OVER (${Object.entries(overPools.chains).map(([c, v]) => `${c} ${tokens(v.over)} in round ${v.round}`).join(', ')})`);
+  if (betting) ctx.log(`Betting money${fresh('betting') ? '' : ' (carried over)'}: ${money(betting.usdc.idle)} USDC in pools (${money(betting.usdc.defaultPools)} default) + ${money(betting.usdc.onBets)} house share of ${betting.usdc.openBets} open bets; ${tokens(betting.over.idle)} OVER in pools + ${tokens(betting.over.onBets)} on bets`);
   if (pools) ctx.log(`Betting pools${fresh('pools') ? '' : ' (carried over)'}: ${money(pools.total)} idle USDC (${Object.entries(pools.chains).map(([c, v]) => `${c} ${money(v.usdc)} in round ${v.round}`).join(', ')})`);
   if (flows.ready) ctx.log(`Money in/out over ${flows.days} days: result ${money(flows.result)}, buybacks ${money(flows.buys)}, stablecoins ${money(flows.change)}, other ${money(flows.other)}`);
   if (liq) ctx.log(`Liquidity: ${money(liq.totalUsd)} in ${liq.pools.length} pools`);

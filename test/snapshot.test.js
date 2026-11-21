@@ -16,9 +16,21 @@ test('a normal first run publishes everything and alerts nothing', async () => {
   assert.deepEqual(r.next.errors, []);
   assert.ok(Object.values(r.next.sources).every(s => s.ok));
   assert.equal(Math.round(r.next.supply.circulating), 53_933_062);
-  assert.equal(Math.round(r.next.supply.house), 15_654_317 + 745_000);
-  assert.equal(Math.round(r.next.supply.float), 53_933_062 - 16_399_317);
+  // The house's OVER: treasury wallets, plus every round's OVER pool (current 745K, default 3 × 10K)
+  // and its share of open OVER bets (3 × (1,500 − 400)).
+  assert.equal(Math.round(r.next.supply.house), 15_654_317 + 778_300);
+  assert.equal(Math.round(r.next.supply.float), 53_933_062 - 16_432_617);
   assert.equal(r.next.pools.total, 503_000);
+  assert.deepEqual(r.next.betting.usdc, {
+    idle: 653_000, defaultPools: 150_000, onBets: 3_300, held: 4_500, stakes: 1_200, openBets: 6, total: 656_300,
+    chains: {
+      optimism: { idle: 223_000, defaultPool: 50_000, onBets: 1_100, openBets: 2 },
+      arbitrum: { idle: 236_000, defaultPool: 50_000, onBets: 1_100, openBets: 2 },
+      base: { idle: 194_000, defaultPool: 50_000, onBets: 1_100, openBets: 2 }
+    }
+  });
+  assert.equal(r.history.at(-1).bettingUsdc, 656_300);
+  assert.equal(r.history.at(-1).def, 2);
   assert.equal(r.stats.lastT, Math.floor(T0 / DAY) * DAY - DAY); // today is left out
   assert.equal(w.issues.length, 0);
 });
@@ -100,6 +112,9 @@ test('a failed betting-pool read is carried over, not counted as zero', async ()
   assert.equal(r.next.sources.pools.ok, false);
   assert.equal(r.next.pools.total, 503_000);
   assert.equal(r.history.at(-1).poolUsdc, null); // history keeps only fresh readings
+  assert.equal(r.next.sources.betting.ok, false);
+  assert.equal(r.next.betting.usdc.total, 656_300);  // carried over
+  assert.equal(r.history.at(-1).bettingUsdc, null);
 });
 
 test('a buyback cut opens one issue; a raise opens one "rate up" issue', async () => {
@@ -198,5 +213,8 @@ test('too many listed bets are counted, not read, and the rest still loads', asy
   const op = r.next.capital.usdc.optimism;
   assert.match(op.open.skipped, /more than/);
   assert.equal(op.pools.find(p => p.round === 1).amount, 50_000);
-  assert.deepEqual(r.next.errors, []);
+  // Without every open bet read, there's no betting-money figure, and the job says so.
+  assert.deepEqual(r.next.errors, ['betting money: not every pool was read in full']);
+  assert.equal(r.next.sources.betting.ok, false);
+  assert.equal(r.next.betting, null);
 });

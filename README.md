@@ -9,7 +9,7 @@ A live tracker for [Overtime](https://www.overtime.io/) ($OVER): treasury stable
 A GitHub Action (`.github/workflows/snapshot.yml`) runs `scripts/snapshot.mjs` once a day at 04:17 UTC, and whenever the script or `lib/` changes. It collects:
 
 - **House result, buybacks and treasury** from DefiLlama's public API.
-- **Betting-pool capital** straight from the USDC sportsbook pools on Optimism, Arbitrum and Base. The job also measures, without yet using in any figure, where else the house's betting money sits: pools for later rounds, the default pool (futures and parlays spanning rounds) and open bets, read in batches through Multicall3.
+- **Betting money** straight from the sportsbook's USDC and OVER pools on Optimism, Arbitrum and Base: every round's pool (current, later and the default pool that takes futures and parlays spanning rounds) plus the house's share of open bets (what each bet holds minus the bettor's stake). Every listed bet is read, in batches through Multicall3. The bankroll, the money reconciliation and the house's OVER all use this figure; history rows from before 21 Nov 2026 counted only the current round's pool and are left out of comparisons.
 - **Who controls the pools.** The betting pools are upgradeable (EIP-1967) proxies. Their code and the owner of their upgrade key are read daily.
 - **Supply** straight from the OVER contracts on Ethereum, Optimism, Arbitrum and Base through public RPCs, with the top holders from Blockscout to find the Chainlink bridge pool on Ethereum. The holders table labels Overtime's admin multisig (read onchain as the owner of the pools' upgrade key), DEX pools and Safe multisigs, and says which chains it covers.
 - **Liquidity** from DexScreener.

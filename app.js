@@ -371,7 +371,7 @@ function verdict(parent, checks) {
 // ---------- State ----------
 const state = { range: 365, mode: 'month', data: null, now: null, rev: null, buy: null, treasury: null, price: null, history: [], loaded: false };
 
-const SOURCE_NAMES = { revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', overPools: 'OVER pools', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
+const SOURCE_NAMES = { revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', overPools: 'OVER pools', betting: 'betting money', contracts: 'pool contracts', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
 const staleSources = () => Object.entries((state.data && state.data.sources) || {}).filter(([, v]) => !v.ok);
 const sourceDate = name => { const v = state.data && state.data.sources && state.data.sources[name]; return v && v.asOf ? fmtDate(v.asOf) : 'an earlier day'; };
 
@@ -416,7 +416,7 @@ function renderSummary() {
   tile(tiles, 'Market cap', money(mcap), { note: 'Same as fully diluted value: no tokens left to unlock.' });
   tile(tiles, s.bankrollMode === 'full' ? 'House stablecoins' : 'Treasury stablecoins', money(s.bankrollNow), {
     delta: s.change30, deltaLabel: '30 days',
-    note: s.bankrollMode === 'full' ? 'Treasury wallets plus betting-pool money that isn’t on open bets.' : (s.latestReading ? `Plus ${money(s.latestReading.pools)} in the betting pools, not on open bets.` : 'Treasury wallets.')
+    note: s.bankrollMode === 'full' ? 'Treasury wallets plus the betting pools and the house’s share of open bets.' : (s.latestReading ? `Plus ${money(s.latestReading.pools)} in the betting pools, counting the house’s share of open bets.` : 'Treasury wallets.')
   });
 
   const list = $('checks');
@@ -439,9 +439,12 @@ function renderSummary() {
       extras.push(syms.length && !syms.includes('OVER') ? `${money(last.own)} that DefiLlama lists as old ${syms.join(', ')} tokens` : `${money(last.own)} in its own tokens`);
     }
   }
-  const pools = state.data && state.data.pools;
+  const bet = state.data && state.data.betting && state.data.betting.usdc;
   const parts = ['Stablecoins in the treasury wallets, from DefiLlama. Since OIP-265, the governance vote behind the July 2026 switch, the betting pools that bettors play against hold only treasury money.'];
-  if (pools && pools.chains) parts.push(`They hold another ${money(pools.total)} in USDC today that isn’t on open bets, read onchain (${Object.entries(pools.chains).map(([c, v]) => `${chainName(c)} ${money(v.usdc)}`).join(', ')}).`);
+  if (bet) {
+    parts.push(`Read onchain, they hold another ${money(bet.idle)} in USDC (${Object.entries(bet.chains).map(([c, v]) => `${chainName(c)} ${money(v.idle)}`).join(', ')}), ${money(bet.defaultPools)} of it in the default pools that take futures and parlays spanning more than one round.`);
+    parts.push(`${bet.openBets.toLocaleString('en-GB')} open bets hold ${money(bet.held)}: ${money(bet.stakes)} of bettors’ stakes and ${money(bet.onBets)} of the house’s money, which comes back if the bets lose.`);
+  }
   if (extras.length) parts.push(`The treasury also holds ${extras.length > 1 ? `${extras.slice(0, -1).join(', ')} and ${extras[extras.length - 1]}` : extras[0]}.`);
   $('treasury-sub').textContent = parts.join(' ');
 
@@ -456,7 +459,7 @@ function renderFlows(readings) {
   if (!f.ready) {
     const start = f.since ? fmtDate(f.since) : 'the first onchain pool reading';
     const ready = f.since ? fmtDate(f.since + FLOWS_MIN_DAYS * DAY) : null;
-    el('p', 'flows-wait', `This needs the betting pools’ capital on two dates. Readings started ${start}${ready ? `, and the first ${FLOWS_MIN_DAYS}-day view appears on ${ready}` : ''}. It then covers the latest 30 days.`, box);
+    el('p', 'flows-wait', `This needs the house’s betting money (every pool and its share of open bets) on two dates. Readings started ${start}${ready ? `, and the first ${FLOWS_MIN_DAYS}-day view appears on ${ready}` : ''}. It then covers the latest 30 days.`, box);
     return;
   }
   const s = el('p', 'flows-line', null, box);
@@ -469,7 +472,7 @@ function renderFlows(readings) {
     ['House result', money(f.result)],
     ['Bought back', money(-f.buys)],
     ['Expected change', money(f.expected)],
-    ['Actual change in treasury + pools', `${money(f.change)} (treasury ${money(f.treasuryChange)}, pools ${money(f.poolsChange)})`],
+    ['Actual change in treasury + betting money', `${money(f.change)} (treasury ${money(f.treasuryChange)}, betting ${money(f.poolsChange)})`],
     ['Other flows', money(f.other)]
   ]);
 }
@@ -523,7 +526,7 @@ function renderSupply() {
     : `${pct(sup.burned / sup.max)} of the maximum. Daily burn shows from the second snapshot.`;
   tile(tiles, 'Burned so far', tokens(sup.burned), { unit: 'OVER', note: burnNote });
   if (ok(sup.house)) {
-    tile(tiles, 'Held by the house', tokens(sup.house), { unit: 'OVER', note: `${pct(sup.house / sup.circulating)} of circulating: ${tokens(sup.treasury)} in treasury wallets, ${tokens(sup.overPools)} in the OVER betting pools` });
+    tile(tiles, 'Held by the house', tokens(sup.house), { unit: 'OVER', note: `${pct(sup.house / sup.circulating)} of circulating: ${tokens(sup.treasury)} in treasury wallets, ${tokens(sup.overPools)} in the OVER betting pools and open bets` });
   } else {
     tile(tiles, 'Held by the treasury', tokens(sup.treasury), { unit: 'OVER', note: `${pct(sup.treasury / sup.circulating)} of circulating supply. The OVER betting pools didn’t load.` });
   }
@@ -550,9 +553,9 @@ function renderSupply() {
   }
   $('supply-note').textContent = notes.join(' ');
 
-  const op = (state.data.overPools && state.data.overPools.chains) || {};
-  const rows = Object.entries(sup.chains || {}).map(([chain, c]) => [chainName(chain), tokens(c.total), tokens(c.locked), tokens(c.dead), tokens(c.treasury), op[chain] ? tokens(op[chain].over) : '—', tokens(c.total - c.locked - c.dead)]);
-  table($('supply-table'), ['Chain', 'Contract supply', 'Locked in bridge', 'Burn addresses', 'Treasury wallets', 'OVER pools', 'Circulating'], rows);
+  const op = (state.data.betting && state.data.betting.over && state.data.betting.over.chains) || {};
+  const rows = Object.entries(sup.chains || {}).map(([chain, c]) => [chainName(chain), tokens(c.total), tokens(c.locked), tokens(c.dead), tokens(c.treasury), op[chain] ? tokens(op[chain].idle + op[chain].onBets) : '—', tokens(c.total - c.locked - c.dead)]);
+  table($('supply-table'), ['Chain', 'Contract supply', 'Locked in bridge', 'Burn addresses', 'Treasury wallets', 'OVER betting pools', 'Circulating'], rows);
 
   // Largest holders that aren't the bridge, a burn address or a listed treasury wallet.
   const skip = new Set([...DEAD, ...OVER.treasury, ...Object.values(OVER.locked).flat()].map(a => a.toLowerCase()));
