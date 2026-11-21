@@ -95,7 +95,7 @@ test('buybacks that stop before the last revenue day are not counted as zero', (
   assert.equal(check(computeChecks(computeStats({ rev, buy })), 'cover').state, 'unknown');
 });
 
-test('every check has a short line for the summary under the headline', () => {
+test('every check has a short line for the summary and a reason line for newcomers', () => {
   const rev = series(day(2026, 8, 1), day(2026, 11, 19), 6000);
   const buy = series(day(2026, 8, 1), day(2026, 11, 19), 2000);
   const treasury = series(day(2026, 9, 1), day(2026, 11, 19), 2_000_000).map(p => ({ t: p.t, stable: p.v }));
@@ -103,6 +103,7 @@ test('every check has a short line for the summary under the headline', () => {
   const empty = computeChecks(computeStats({}));
   for (const c of [...filled, ...empty]) assert.ok(c.short && c.short.length <= 40, `${c.id}: ${c.short}`);
   assert.equal(check(filled, 'cover').short, 'Buybacks covered 3.0× in 90 days');
+  for (const c of [...filled, ...empty]) assert.ok(c.why && c.why.length > 20, `${c.id} has no reason line`);
 });
 
 test('buyback rate: cut, pause and raise', () => {

@@ -134,13 +134,23 @@ function lineChart(container, pts, { aria, name, fmt = money, axisFmt = axisMone
       svg('text', { class: 'tick', x: X(t), y: y0 + 19, 'text-anchor': 'middle' }, s).textContent = shortMonth(t);
     });
   } else {
+    // Short ranges: the first and last reading's dates, plus whole days in between, each date once
+    // and never closer than 80px, so two readings a day apart don't repeat a label.
+    const day = t => new Date(t * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    const tick = (t, anchor) => { svg('text', { class: 'tick', x: X(t), y: y0 + 19, 'text-anchor': anchor }, s).textContent = day(t); };
     const n = Math.max(2, Math.min(6, Math.floor((x1 - x0) / 90)));
-    for (let i = 0; i < n; i++) {
-      const t = tMin + span * i / (n - 1);
-      const d = new Date(t * 1000);
-      svg('text', { class: 'tick', x: X(t), y: y0 + 19, 'text-anchor': i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle' }, s)
-        .textContent = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-    }
+    const first = Math.floor(tMin / DAY) * DAY, mids = [];
+    for (let t = first + DAY; t < tMax; t += DAY) mids.push(t);
+    const every = Math.max(1, Math.ceil((mids.length + 1) / (n - 1)));
+    tick(tMin, 'start');
+    let lastX = X(tMin);
+    mids.forEach(t => {
+      if (Math.round((t - first) / DAY) % every || day(t) === day(tMin) || day(t) === day(tMax)) return;
+      if (X(t) - lastX < 80 || X(tMax) - X(t) < 80) return;
+      tick(t, 'middle');
+      lastX = X(t);
+    });
+    if (day(tMax) !== day(tMin)) tick(tMax, 'end');
   }
   for (const a of ANNOTATIONS) {
     if (a.t <= tMin || a.t >= tMax) continue;
@@ -330,16 +340,20 @@ function check(parent, c) {
   const h = el('p', 'check-title', null, body);
   el('strong', null, GRADE[c.state][1], h);
   h.appendChild(document.createTextNode(` · ${c.title}`));
+  if (c.why) el('p', 'check-why', c.why, body);
   el('p', 'check-text', c.text, body);
   if (c.staleSince) el('p', 'stale-note', `Today’s update failed, so this uses data from ${c.staleSince}. No alerts until it refreshes.`, body);
 }
 
+// Checks in the order a newcomer needs them: are buybacks paid for, is the bankroll holding, is the
+// payout steady, is the house keeping its OVER; the trend comparison, still pending, last.
+const PRIORITY = ['cover', 'bankroll', 'rate', 'houseOver', 'trend'];
+const pos = c => { const i = PRIORITY.indexOf(c.id); return i < 0 ? PRIORITY.length : i; };
+
 // One line per check under the headline, worst first, each linking to the full check.
 function verdict(parent, checks) {
   parent.replaceChildren();
-  const PRIORITY = ['cover', 'bankroll', 'rate', 'houseOver', 'trend'];
   const rank = c => (RANK[c.state] < 0 ? -1 : RANK[c.state]);
-  const pos = c => { const i = PRIORITY.indexOf(c.id); return i < 0 ? PRIORITY.length : i; };
   [...checks].sort((a, b) => rank(b) - rank(a) || pos(a) - pos(b)).forEach(c => {
     const li = el('li', 'verdict-item ' + c.state, null, parent);
     const a = el('a', null, null, li);
@@ -393,12 +407,12 @@ function renderSummary() {
   tile(tiles, 'House result, 30 days', money(s.rev30), { note: end ? `To ${end} · ${money(s.rev365)} over the last year` : null });
   tile(tiles, 'Bought back, 30 days', money(s.buy30), { note: ok(s.buy30) && ok(s.rev30) ? (s.rev30 > 0 ? `${pct(s.buy30 / s.rev30)} of the house result` : 'The house result was negative') : null });
   const yld = ok(s.buy90) && mcap > 0 ? (s.buy90 * 365 / 90) / mcap : null;
-  tile(tiles, 'Buyback yield', pct(yld), { note: 'Last 90 days of buybacks, annualized, divided by market cap.' });
+  tile(tiles, 'Buyback yield', pct(yld), { note: 'Like a dividend yield: a year of buybacks at the last 90 days’ pace, as a share of market cap.' });
   tile(tiles, 'OVER price', price && ok(price.usd) ? `$${price.usd.toFixed(4)}` : '—', { delta: price ? price.change24h : null, deltaLabel: '24h', note: price && price.stale ? 'From the last snapshot.' : null });
   tile(tiles, 'Market cap', money(mcap), { note: 'Same as fully diluted value: no tokens left to unlock.' });
   tile(tiles, s.bankrollMode === 'full' ? 'House stablecoins' : 'Treasury stablecoins', money(s.bankrollNow), {
     delta: s.change30, deltaLabel: '30 days',
-    note: s.bankrollMode === 'full' ? 'Treasury wallets plus idle capital in the betting pools.' : (s.latestReading ? `Plus ${money(s.latestReading.pools)} idle in the betting pools.` : 'Treasury wallets.')
+    note: s.bankrollMode === 'full' ? 'Treasury wallets plus betting-pool money that isn’t on open bets.' : (s.latestReading ? `Plus ${money(s.latestReading.pools)} in the betting pools, not on open bets.` : 'Treasury wallets.')
   });
 
   const list = $('checks');
@@ -408,7 +422,7 @@ function renderSummary() {
     const bad = c.sources.filter(n => failed.has(n));
     return { ...c, staleSince: bad.length ? sourceDate(bad[0]) : null };
   });
-  checks.forEach(c => check(list, c));
+  [...checks].sort((a, b) => pos(a) - pos(b)).forEach(c => check(list, c));
   verdict($('verdict'), checks);
 
   // Describe the rest of what the treasury holds next to the stablecoin chart.
@@ -422,9 +436,9 @@ function renderSummary() {
     }
   }
   const pools = state.data && state.data.pools;
-  const parts = ['Stablecoins in the treasury wallets, from DefiLlama. Since OIP-265 the treasury is also the only liquidity provider in the betting pools.'];
-  if (pools && pools.chains) parts.push(`Those hold another ${money(pools.total)} of idle USDC today, read onchain (${Object.entries(pools.chains).map(([c, v]) => `${chainName(c)} ${money(v.usdc)}`).join(', ')}); money already riding on open bets isn’t counted.`);
-  if (extras.length) parts.push(`The treasury also holds ${extras.join(', ')}.`);
+  const parts = ['Stablecoins in the treasury wallets, from DefiLlama. Since OIP-265, the governance vote behind the July 2026 switch, the betting pools that bettors play against hold only treasury money.'];
+  if (pools && pools.chains) parts.push(`They hold another ${money(pools.total)} in USDC today that isn’t on open bets, read onchain (${Object.entries(pools.chains).map(([c, v]) => `${chainName(c)} ${money(v.usdc)}`).join(', ')}).`);
+  if (extras.length) parts.push(`The treasury also holds ${extras.length > 1 ? `${extras.slice(0, -1).join(', ')} and ${extras[extras.length - 1]}` : extras[0]}.`);
   $('treasury-sub').textContent = parts.join(' ');
 
   renderFlows(readings);

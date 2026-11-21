@@ -164,6 +164,7 @@ h2 { font-size:30px; font-weight:400; letter-spacing:-.04em; line-height:1.16; m
 .flows td:last-child { white-space:normal; }
 .check-title { margin:3px 0 0; font-size:15px; }
 .check-title strong { font-weight:600; }
+.check-why { margin:6px 0 0; font-size:14px; line-height:1.5; }
 .check-text { margin:6px 0 0; font-size:13.5px; line-height:1.5; color:var(--muted); }
 
 /* Controls */
