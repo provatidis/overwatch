@@ -383,7 +383,7 @@ async function walletTotals(chains, exclude) {
   for (const [chain, token] of Object.entries(OVER.tokens)) {
     const bals = await readMany(chain, list.map(a => ({ to: token, data: SEL.balanceOf + addrWord(a) })));
     if (bals.some(b => b == null)) throw new Error(`a wallet balance on ${chain} didn’t load`);
-    bals.forEach((b, i) => { const v = toTokens(b); if (v > 0) { out[i].chains[chain] = v; out[i].total += v; } });
+    bals.forEach((b, i) => { const v = toTokens(b); if (v >= 1) { out[i].chains[chain] = v; out[i].total += v; } }); // dust isn’t a holding
   }
   return out.sort((a, b) => b.total - a.total).slice(0, 20);
 }
