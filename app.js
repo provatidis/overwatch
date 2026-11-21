@@ -3,7 +3,7 @@ import { ANNOTATIONS, CHAIN_NAMES, EXPLORERS, OVER, DEAD, METHOD_CHANGE } from '
 import { money, tokens, axisMoney, axisTokens, pct, fmtDate, shortMonth, ok } from './lib/format.js';
 import {
   DAY, dailySeries, fromPairs, parseTreasury, treasuryFromRows, readingsFromHistory, overReadingsFromHistory, completeDays, aggregate, periodStart,
-  periodNext, periodLabel, computeStats, computeChecks, computeFlows, FLOWS_MIN_DAYS, voterGroup, GRADE
+  periodNext, periodLabel, computeStats, computeChecks, computeFlows, FLOWS_MIN_DAYS, voterGroup, GRADE, RANK
 } from './lib/metrics.js';
 
 // ---------- Theme (same storage key as provatidis.com) ----------
@@ -324,6 +324,7 @@ function tile(parent, label, value, opts = {}) {
 }
 function check(parent, c) {
   const li = el('li', 'check ' + c.state, null, parent);
+  li.id = 'check-' + c.id;
   el('span', 'badge', GRADE[c.state][0], li).setAttribute('aria-hidden', 'true');
   const body = el('div', null, null, li);
   const h = el('p', 'check-title', null, body);
@@ -331,6 +332,24 @@ function check(parent, c) {
   h.appendChild(document.createTextNode(` · ${c.title}`));
   el('p', 'check-text', c.text, body);
   if (c.staleSince) el('p', 'stale-note', `Today’s update failed, so this uses data from ${c.staleSince}. No alerts until it refreshes.`, body);
+}
+
+// One line per check under the headline, worst first, each linking to the full check.
+function verdict(parent, checks) {
+  parent.replaceChildren();
+  const PRIORITY = ['cover', 'bankroll', 'rate', 'houseOver', 'trend'];
+  const rank = c => (RANK[c.state] < 0 ? -1 : RANK[c.state]);
+  const pos = c => { const i = PRIORITY.indexOf(c.id); return i < 0 ? PRIORITY.length : i; };
+  [...checks].sort((a, b) => rank(b) - rank(a) || pos(a) - pos(b)).forEach(c => {
+    const li = el('li', 'verdict-item ' + c.state, null, parent);
+    const a = el('a', null, null, li);
+    a.href = '#check-' + c.id;
+    el('span', 'badge', GRADE[c.state][0], a).setAttribute('aria-hidden', 'true');
+    const text = el('span', 'verdict-text', null, a);
+    el('span', 'sr-only', GRADE[c.state][1] + ': ', text);
+    text.append(c.short || c.title);
+    if (c.staleSince) el('span', 'verdict-stale', ' (earlier data)', text);
+  });
 }
 
 // ---------- State ----------
@@ -357,7 +376,9 @@ function renderSummary() {
     if (ok(s.buy30)) {
       text(s.rev30 > 0 ? ' and ' : ' while ');
       strong(money(s.buy30));
-      text(s.rev30 > 0 ? ` of it (${pct(s.buy30 / s.rev30)}) went to buying back OVER.` : ' still went to buying back OVER.');
+      if (s.rev30 <= 0) text(' still went to buying back OVER.');
+      else if (s.buy30 > s.rev30) text(` (${pct(s.buy30 / s.rev30)} of that) went to buying back OVER.`);
+      else text(` of it (${pct(s.buy30 / s.rev30)}) went to buying back OVER.`);
     } else text('. Buyback data isn’t available.');
     if (ok(s.rev90) && ok(s.buy90)) {
       el('span', 'headline-sub', ` Over 90 days: ${money(s.rev90)} and ${money(s.buy90)}${s.rev90 > 0 ? ` (${pct(s.buy90 / s.rev90)})` : ''}.`, head);
@@ -383,10 +404,12 @@ function renderSummary() {
   const list = $('checks');
   list.replaceChildren();
   const failed = new Set(staleSources().map(([k]) => k));
-  computeChecks(s).forEach(c => {
+  const checks = computeChecks(s).map(c => {
     const bad = c.sources.filter(n => failed.has(n));
-    check(list, { ...c, staleSince: bad.length ? sourceDate(bad[0]) : null });
+    return { ...c, staleSince: bad.length ? sourceDate(bad[0]) : null };
   });
+  checks.forEach(c => check(list, c));
+  verdict($('verdict'), checks);
 
   // Describe the rest of what the treasury holds next to the stablecoin chart.
   const last = state.treasury && state.treasury.length ? state.treasury[state.treasury.length - 1] : null;

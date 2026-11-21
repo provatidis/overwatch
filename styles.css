@@ -106,6 +106,19 @@ h1 em, h2 em { font-family:var(--serif); font-weight:400; }
 .headline { font-size:21px; line-height:1.45; letter-spacing:-.01em; margin:0; }
 .headline strong { font-weight:600; }
 .headline-sub { color:var(--muted); }
+/* One line per check under the headline */
+.verdict { list-style:none; margin:2px 0 4px; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(215px, 1fr)); gap:8px 18px; font-size:13.5px; line-height:1.4; }
+.verdict:empty { display:none; }
+.verdict a { display:flex; align-items:flex-start; gap:7px; color:var(--ink); text-decoration:none; }
+.verdict a:hover { text-decoration:underline; text-underline-offset:3px; }
+.verdict .badge { width:18px; height:18px; font-size:10.5px; flex:none; margin-top:.5px; }
+.verdict-item.good .badge { background:var(--good); }
+.verdict-item.watch .badge { background:var(--warning); color:#0b0b0b; }
+.verdict-item.alert .badge { background:var(--critical); }
+.verdict-item.pending .badge, .verdict-item.unknown .badge { background:var(--line); color:var(--ink); }
+.verdict-item.pending a, .verdict-item.unknown a { color:var(--muted); }
+.verdict-stale { color:var(--muted); }
+.sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 .lead { font-size:14.5px; line-height:1.6; margin:0; color:var(--muted); }
 .lead a { text-underline-offset:3px; }
 .status { grid-column:1 / -1; margin:22px 0 0; font-size:13px; color:var(--muted); }
@@ -129,7 +142,7 @@ h2 { font-size:30px; font-weight:400; letter-spacing:-.04em; line-height:1.16; m
 
 /* Thesis checks */
 .checks { list-style:none; margin:18px 0 0; padding:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
-.check { display:grid; grid-template-columns:28px 1fr; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+.check { scroll-margin-top:16px; display:grid; grid-template-columns:28px 1fr; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
 .badge { width:28px; height:28px; border-radius:50%; display:grid; place-items:center; font-size:15px; font-weight:700; line-height:1; color:#fff; background:var(--muted); }
 .check.good .badge { background:var(--good); }
 .check.watch .badge { background:var(--warning); color:#0b0b0b; }

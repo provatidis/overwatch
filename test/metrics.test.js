@@ -5,6 +5,7 @@ import {
   readingsFromHistory, overReadingsFromHistory, voterGroup, FIRST_COMPARABLE
 } from '../lib/metrics.js';
 import { METHOD_CHANGE } from '../lib/config.js';
+import { times } from '../lib/format.js';
 
 const day = (y, m, d) => Date.UTC(y, m - 1, d) / 1000;
 const series = (from, to, v) => { const out = []; for (let t = from; t <= to; t += DAY) out.push({ t, v: typeof v === 'function' ? v(t) : v }); return out; };
@@ -52,18 +53,56 @@ test('a losing 90 days is an alert whatever the comparison', () => {
   assert.equal(check(computeChecks(computeStats({ rev })), 'trend').state, 'alert');
 });
 
-test('share bought back: buybacks larger than the result are a watch, not healthy', () => {
-  const rev = series(day(2026, 8, 1), day(2026, 11, 19), 2000);
-  const buy = series(day(2026, 8, 1), day(2026, 11, 19), 2300);
-  const c = check(computeChecks(computeStats({ rev, buy })), 'share');
-  assert.equal(c.state, 'watch');
-  assert.match(c.text, /topping them up/);
+test('buyback cover is graded on 90 days, and fixes both ends of the old share check', () => {
+  const cover = (r, b) => check(computeChecks(computeStats({ rev: series(day(2026, 8, 1), day(2026, 11, 19), r), buy: series(day(2026, 8, 1), day(2026, 11, 19), b) })), 'cover');
+  assert.equal(cover(6000, 2000).state, 'good');       // 3.0×
+  assert.equal(cover(9000, 2300).state, 'good');       // 3.9×: a strong quarter, which the old share check called Watch
+  assert.equal(cover(2600, 2300).state, 'watch');      // 1.1×: buybacks take 88%, which the old share check called Healthy
+  const short = cover(2000, 2300);                     // 0.87×: the treasury tops buybacks up
+  assert.equal(short.state, 'alert');
+  assert.match(short.text, /topped them up/);
+  assert.match(short.short, /not covered/);
+  const loss = cover(-100, 2300);
+  assert.equal(loss.state, 'alert');
+  assert.match(loss.short, /House lost/);
+});
+
+test('buyback cover: a losing week is context, not the grade', () => {
+  const lastT = day(2026, 11, 19);
+  const rev = series(day(2026, 8, 1), lastT, t => (t > lastT - 7 * DAY ? -1000 : 6000));
+  const buy = series(day(2026, 8, 1), lastT, 2000);
+  const s = computeStats({ rev, buy });
+  const c = check(computeChecks(s), 'cover');
+  assert.equal(c.state, 'good');
+  assert.match(c.text, /over 7 days the house lost \$7\.0K/);
+  assert.equal(s.coverWeeksShort, 1);
+  assert.ok(s.coverWeeks >= 15);
+  assert.match(c.text, /1 of \d+ weeks didn’t cover/);
+});
+
+test('multiples round down, so a figure never shows at a threshold it hasn’t reached', () => {
+  assert.equal(times(1.49), '1.4×');
+  assert.equal(times(1.5), '1.5×');
+  assert.equal(times(3.08), '3.0×');
+  assert.equal(times(12.7), '12×');
+  assert.equal(times(-0.5), '−0.5×');
+  assert.equal(times(null), '—');
 });
 
 test('buybacks that stop before the last revenue day are not counted as zero', () => {
   const rev = series(day(2026, 8, 1), day(2026, 11, 19), 6000);
   const buy = series(day(2026, 8, 1), day(2026, 11, 15), 2300);
-  assert.equal(check(computeChecks(computeStats({ rev, buy })), 'share').state, 'unknown');
+  assert.equal(check(computeChecks(computeStats({ rev, buy })), 'cover').state, 'unknown');
+});
+
+test('every check has a short line for the summary under the headline', () => {
+  const rev = series(day(2026, 8, 1), day(2026, 11, 19), 6000);
+  const buy = series(day(2026, 8, 1), day(2026, 11, 19), 2000);
+  const treasury = series(day(2026, 9, 1), day(2026, 11, 19), 2_000_000).map(p => ({ t: p.t, stable: p.v }));
+  const filled = computeChecks(computeStats({ rev, buy, treasury }));
+  const empty = computeChecks(computeStats({}));
+  for (const c of [...filled, ...empty]) assert.ok(c.short && c.short.length <= 40, `${c.id}: ${c.short}`);
+  assert.equal(check(filled, 'cover').short, 'Buybacks covered 3.0× in 90 days');
 });
 
 test('buyback rate: cut, pause and raise', () => {

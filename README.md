@@ -1,6 +1,6 @@
 # OVER watch
 
-A live tracker for [Overtime](https://www.overtime.io/) ($OVER): treasury stablecoins, the house result, buybacks and buyback yield, supply and free float, DEX liquidity and governance votes, with three thesis checks.
+A live tracker for [Overtime](https://www.overtime.io/) ($OVER): treasury stablecoins, the house result, buybacks and buyback yield, supply and free float, DEX liquidity and governance votes, with five thesis checks summed up under the headline.
 
 [provatidis.com/overwatch](https://provatidis.com/overwatch/)
 
@@ -33,7 +33,7 @@ The reconciliation compares, over up to 30 days of those readings, what the hous
 
 ## Alerts
 
-Five checks run every day: the house bankroll, the house-result trend, the share of the result bought back, the **buyback rate** (last 7 days against the 30 before; a cut or a pause turns it amber or red) and **treasury OVER** (OVER held by the treasury wallets plus the OVER betting pools, over 7 days). OVER moving between the wallets and the pools doesn't count as a change.
+Five checks run every day: the house bankroll, the house-result trend, **buyback cover** (the 90-day house result divided by buybacks: Healthy from 1.5×, Alert below 1×, with 30 and 7 days and the weekly record since the method change shown for context, since a sportsbook's week is noisy), the **buyback rate** (last 7 days against the 30 before; a cut or a pause turns it amber or red) and **treasury OVER** (OVER held by the treasury wallets plus the OVER betting pools, over 7 days). OVER moving between the wallets and the pools doesn't count as a change. A line under the headline sums up all five, worst first.
 
 When a thesis check gets worse (Healthy → Watch → Alert), the job opens an issue in this repo, and it closes that issue when the check is Healthy again. Checks running on stale data, or not yet comparable, never alert. A treasury OVER alert lists the wallets that moved and by how much. A buyback raise of 20% or more gets its own one-off issue. It also opens an issue for every new Snapshot vote, saying who votes on it. GitHub emails you about new issues in your own repos, so watching the repo is enough.
 
@@ -50,7 +50,7 @@ When a thesis check gets worse (Healthy → Watch → Alert), the job opens an i
 npm test
 ```
 
-Node's built-in test runner, no dependencies. `test/metrics.test.js` covers the checks and the money reconciliation. `test/snapshot.test.js` runs the real snapshot job day by day against a fake world (`test/fake-world.js`) and stages every failure found so far: empty, short or stale replies, a down feed, a bridge mismatch, a failed pool read, an empty proposal list, buyback cuts and raises, OVER leaving the house and alerts closing themselves. Tests run on every push, and the daily job runs them first, so a broken change never publishes data.
+Node's built-in test runner, no dependencies. `test/metrics.test.js` covers the checks, buyback cover's history and the money reconciliation. `test/snapshot.test.js` runs the real snapshot job day by day against a fake world (`test/fake-world.js`) and stages every failure found so far: empty, short or stale replies, a down feed, a bridge mismatch, a failed pool read, an empty proposal list, buyback cuts and raises, OVER leaving the house and alerts closing themselves. Tests run on every push, and the daily job runs them first, so a broken change never publishes data.
 
 ## Local preview
 

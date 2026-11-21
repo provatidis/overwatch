@@ -77,7 +77,7 @@ test('when the buybacks feed is down, its check is stale and never alerts', asyn
   await runDay(w, dir, 0);
   w.fail.add('buybacks');
   const r = await runDay(w, dir, 1);
-  assert.equal(check(r, 'share').stale, true);
+  assert.equal(check(r, 'cover').stale, true);
   assert.equal(check(r, 'rate').stale, true);
   assert.equal(w.issues.length, 0);
 });
