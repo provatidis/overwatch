@@ -19,5 +19,26 @@
    "rate": "good",
    "houseOver": "pending"
   }
+ },
+ {
+  "date": "2026-11-21",
+  "price": 0.172168,
+  "mcap": 9285321.35582008,
+  "treasuryStable": 2451771,
+  "poolUsdc": 479757,
+  "circulating": 53933062,
+  "burned": 15486938,
+  "treasuryOver": 15654317,
+  "poolOver": 778561,
+  "houseOver": 16432878,
+  "liquidityUsd": 616322,
+  "volume24h": 28324,
+  "checks": {
+   "bankroll": "good",
+   "trend": "pending",
+   "share": "good",
+   "rate": "good",
+   "houseOver": "good"
+  }
  }
 ]
