@@ -557,8 +557,11 @@ function renderSupply() {
   const rows = Object.entries(sup.chains || {}).map(([chain, c]) => [chainName(chain), tokens(c.total), tokens(c.locked), tokens(c.dead), tokens(c.treasury), op[chain] ? tokens(op[chain].idle + op[chain].onBets) : '—', tokens(c.total - c.locked - c.dead)]);
   table($('supply-table'), ['Chain', 'Contract supply', 'Locked in bridge', 'Burn addresses', 'Treasury wallets', 'OVER betting pools', 'Circulating'], rows);
 
-  // Largest holders that aren't the bridge, a burn address or a listed treasury wallet.
-  const skip = new Set([...DEAD, ...OVER.treasury, ...Object.values(OVER.locked).flat()].map(a => a.toLowerCase()));
+  // Largest holders that aren't the bridge, a burn address, a listed treasury wallet or one of the
+  // house's betting pools (every round, read onchain): those are already counted as the house's.
+  const cap = state.data.capital || {};
+  const bettingPools = [...Object.values(cap.usdc || {}), ...Object.values(cap.over || {})].flatMap(v => (v && v.pools ? v.pools.map(p => p.address) : []));
+  const skip = new Set([...DEAD, ...OVER.treasury, ...Object.values(OVER.locked).flat(), ...Object.values(OVER.overPools), ...bettingPools].map(a => a.toLowerCase()));
   const holders = [];
   for (const [chain, c] of Object.entries(sup.chains || {})) {
     for (const h of c.holders || []) {
@@ -581,10 +584,14 @@ function renderSupply() {
   // Say which chains the list covers: the block explorers don't always answer.
   const chains = Object.entries(sup.chains || {});
   const covered = chains.filter(([, c]) => Array.isArray(c.holders)).map(([k]) => chainName(k));
-  const missing = chains.filter(([, c]) => !Array.isArray(c.holders)).map(([k]) => chainName(k));
+  const missingRaw = chains.filter(([, c]) => !Array.isArray(c.holders));
+  const missing = missingRaw.map(([k]) => chainName(k));
+  const paywalled = missingRaw.length > 0 && missingRaw.every(([, c]) => /\b402\b/.test(c.holdersError || ''));
   const list = names => names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
-  $('holders-note').textContent = `Top wallets${covered.length ? ` on ${list(covered)}` : ''} that aren’t the bridge pool, a burn address or a listed treasury wallet.`
-    + (missing.length ? ` ${list(missing)} ${missing.length === 1 ? 'isn’t' : 'aren’t'} included: ${missing.length === 1 ? 'its' : 'their'} block explorer${missing.length === 1 ? '' : 's'} didn’t return a holder list.` : '')
+  $('holders-note').textContent = `Top wallets${covered.length ? ` on ${list(covered)}` : ''} that aren’t the bridge pool, a burn address, a listed treasury wallet or one of the house’s betting pools.`
+    + (missing.length ? ` ${list(missing)} ${missing.length === 1 ? 'isn’t' : 'aren’t'} included: ${paywalled
+      ? `Blockscout only serves ${missing.length === 1 ? 'its' : 'their'} holder list${missing.length === 1 ? '' : 's'} on a paid plan.`
+      : `the block explorer didn’t return ${missing.length === 1 ? 'its' : 'their'} holder list${missing.length === 1 ? '' : 's'} today.`}` : '')
     + ' “Wallet” means an ordinary account; who controls it isn’t public.';
 }
 
