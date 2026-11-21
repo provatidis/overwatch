@@ -155,8 +155,9 @@ test('the job reads who controls the betting pools and where their money sits', 
   const op = r.next.capital.usdc.optimism;
   assert.equal(op.round, 57);
   assert.deepEqual(op.pools.map(p => [p.round, p.amount]), [[1, 50_000], [57, 173_000]]);
-  assert.equal(op.pools[0].bets, 1234);                   // default round: counted, not read one by one
-  assert.deepEqual(op.open, { bets: 3, open: 2, held: 1_500, stakes: 400 });
+  assert.equal(op.pools[0].bets, 1234);                   // default round: all settled
+  assert.deepEqual(op.open, { bets: 1237, open: 2, held: 1_500, stakes: 400 });
+  assert.deepEqual(op.pools.map(p => p.open), [{ bets: 0, held: 0, stakes: 0 }, { bets: 2, held: 1_500, stakes: 400 }]);
   assert.equal(r.next.capital.over.base.pools.find(p => p.round === 1).amount, 10_000);
 });
 
@@ -189,4 +190,13 @@ test('an upgrade key moving on every pool is one issue; a failed read alerts not
   const moved = await runDay(w, dir, 2);
   assert.deepEqual(moved.sent, ['Betting pool contracts changed (6 changes)']);
   assert.equal(w.issues.length, 1);
+});
+
+test('too many listed bets are counted, not read, and the rest still loads', async () => {
+  const w = makeWorld({ defaultBets: 70_000 }), dir = await tempDir();
+  const r = await runDay(w, dir);
+  const op = r.next.capital.usdc.optimism;
+  assert.match(op.open.skipped, /more than/);
+  assert.equal(op.pools.find(p => p.round === 1).amount, 50_000);
+  assert.deepEqual(r.next.errors, []);
 });

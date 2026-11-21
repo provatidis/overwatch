@@ -18,7 +18,7 @@ const idx = chain => Object.keys(OVER.tokens).indexOf(chain);
 const roundPool = (kind, chain) => '0x' + (kind === 'usdc' ? 'a' : 'b') + String(idx(chain)).padStart(39, '0');
 const defaultPool = (kind, chain) => '0x' + (kind === 'usdc' ? 'd' : 'e') + String(idx(chain)).padStart(39, '0');
 const proxyAdmin = (kind, chain) => '0x' + (kind === 'usdc' ? 'ad1' : 'ad2') + String(idx(chain)).padStart(37, '0');
-const ticket = (kind, chain, i) => '0x' + (kind === 'usdc' ? 'f1' : 'f2') + String(idx(chain)) + String(i).padStart(37, '0');
+const ticket = (kind, chain, round, i) => '0x' + (kind === 'usdc' ? 'f1' : 'f2') + String(idx(chain)) + String(round).padStart(3, '0') + String(i).padStart(34, '0');
 const IMPL_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
 const ADMIN_SLOT = '0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103';
 const ROUND = 57;
@@ -44,6 +44,7 @@ export function makeWorld(over = {}) {
     impl: (kind, chain) => '0x' + (kind === 'usdc' ? '1a' : '2b') + '0'.repeat(38),  // pool code (EIP-1967 implementation)
     adminOwner: '0xef2b0a2ffcdcd3b53d81800d19a543136f26a6b8',
     defaultUsdc: 50_000,             // per chain, in the default pool (round 1)
+    defaultBets: 1234,               // bets listed in the default round, all settled
     openBets: [{ held: 1_000, stake: 300 }, { held: 500, stake: 100 }, { held: 0, stake: 50 }], // current round, per chain and kind
     fail: new Set(),                 // e.g. 'buybacks', 'revenue-empty', 'revenue-stale', 'gov-empty', 'pool-usdc', 'bridge'
     issues: [],                      // what the job posted to GitHub
@@ -121,16 +122,16 @@ export function makeWorld(over = {}) {
         const a = r === ROUND ? roundPool(kind, c) : r === 1 ? defaultPool(kind, c) : '0x0';
         return '0x' + a.slice(2).padStart(64, '0');
       }
-      if (data.startsWith('0x145dee7d')) { const r = Number(arg()); return word(r === ROUND ? w.openBets.length : r === 1 ? 1234 : 0); }
-      if (data.startsWith('0x03d868db')) return '0x' + ticket(kind, c, Number(arg(1))).slice(2).padStart(64, '0');
+      if (data.startsWith('0x145dee7d')) { const r = Number(arg()); return word(r === ROUND ? w.openBets.length : r === 1 ? w.defaultBets : 0); }
+      if (data.startsWith('0x03d868db')) return '0x' + ticket(kind, c, Number(arg(0)), Number(arg(1))).slice(2).padStart(64, '0');
     }
     for (const kind of ['usdc', 'over']) {
       if (to === proxyAdmin(kind, c) && data === '0x8da5cb5b') return '0x' + w.adminOwner.slice(2).padStart(64, '0');
-      const i = w.openBets.findIndex((_, k) => ticket(kind, c, k) === to);
+      const i = w.openBets.findIndex((_, k) => ticket(kind, c, ROUND, k) === to);
       if (i >= 0 && data === '0xd165dac2') return units(w.openBets[i].stake, kind === 'usdc' ? 6 : 18);
     }
     const who = '0x' + data.slice(-40);
-    const held = kind => { const i = w.openBets.findIndex((_, k) => ticket(kind, c, k) === who); return i >= 0 ? w.openBets[i].held : null; };
+    const held = kind => { const i = w.openBets.findIndex((_, k) => ticket(kind, c, ROUND, k) === who); return i >= 0 ? w.openBets[i].held : null; };
     if (OVER.bettingPools[c] && to === lc(OVER.bettingPools[c].usdc)) {
       if (who === roundPool('usdc', c)) return units(w.poolUsdc[c], 6);
       if (who === defaultPool('usdc', c)) return units(w.defaultUsdc, 6);

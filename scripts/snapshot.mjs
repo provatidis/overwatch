@@ -98,13 +98,23 @@ const ethCall = async (chain, to, data) => BigInt(await rpcRaw(chain, 'eth_call'
 const storageAt = async (chain, address, slot) => BigInt(await rpcRaw(chain, 'eth_getStorageAt', [address, slot, 'latest']));
 
 // Many reads in a few requests through Multicall3. A call that fails comes back as null.
-async function readMany(chain, calls, size = 300) {
-  const out = [];
-  for (let i = 0; i < calls.length; i += size) {
-    const raw = await rpcRaw(chain, 'eth_call', [{ to: MULTICALL3, data: encodeAggregate3(calls.slice(i, i + size)) }, 'latest']);
-    for (const r of decodeAggregate3(raw)) out.push(r.success && r.data.length >= 66 ? BigInt(r.data.slice(0, 66)) : null);
-  }
-  return out;
+// Many reads in a few requests through Multicall3, four batches at a time. A call that fails
+// comes back as null; a batch whose reply doesn't match what was asked fails the whole read.
+async function readMany(chain, calls, size = 300, parallel = 4) {
+  const batches = [];
+  for (let i = 0; i < calls.length; i += size) batches.push(calls.slice(i, i + size));
+  const results = new Array(batches.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(parallel, batches.length) }, async () => {
+    while (next < batches.length) {
+      const k = next++;
+      const raw = await rpcRaw(chain, 'eth_call', [{ to: MULTICALL3, data: encodeAggregate3(batches[k]) }, 'latest']);
+      const decoded = decodeAggregate3(raw);
+      if (decoded.length !== batches[k].length) throw new Error(`batch reply had ${decoded.length} results for ${batches[k].length} calls`);
+      results[k] = decoded.map(r => (r.success && r.data.length >= 66 ? BigInt(r.data.slice(0, 66)) : null));
+    }
+  }));
+  return results.flat();
 }
 
 const UNIT = 10n ** BigInt(OVER.decimals - 6);
@@ -230,11 +240,12 @@ function carryContracts(prevList, list, now) {
   });
 }
 
-// Where the house's betting money sits, measured but not yet used in any figure: the current
-// round's pool (what the pool reading already counts), pools for later rounds, the default pool
-// that takes futures and parlays spanning rounds (round 1), and money held by open bets in the
-// current and later rounds. The default round's bets go back to launch, so they're only counted.
-const ROUNDS_AHEAD = 6, MAX_TICKETS = 4000;
+// Where the house's betting money sits: the current round's pool (what the pool reading counts),
+// pools for later rounds, the default pool that takes futures and parlays spanning rounds (round 1),
+// and money held by open bets in all of them. A bet's contract holds the bettor's stake plus the
+// house's share until it settles, then pays out and empties, so an open bet is one with a balance.
+// The default round's list goes back to launch and grows, so there's a ceiling on how many are read.
+const ROUNDS_AHEAD = 6, MAX_TICKETS = 60000;
 async function bettingCapital(chain, pool, token, decimals) {
   const scale = 10n ** BigInt(decimals - 6);
   const amount = b => (b == null ? null : Number(b / scale) / 1e6);
@@ -247,21 +258,30 @@ async function bettingCapital(chain, pool, token, decimals) {
   const bal = await readMany(chain, pools.map(p => ({ to: token, data: SEL.balanceOf + addrWord(p.address) })));
   pools.forEach((p, i) => { p.amount = amount(bal[i]); });
 
-  const live = pools.filter(p => p.round >= round);
-  const bets = live.reduce((n, p) => n + (p.bets || 0), 0);
-  const open = { bets, open: null, held: null, stakes: null };
-  if (bets > MAX_TICKETS) open.skipped = `more than ${MAX_TICKETS} bets`;
-  else if (bets > 0) {
-    const tickets = (await readMany(chain, live.flatMap(p => Array.from({ length: p.bets || 0 }, (_, i) => ({ to: pool, data: SEL.ticketAt + word(p.round) + word(i) })))))
-      .filter(b => b != null).map(toAddr).filter(a => !isZeroAddr(a));
-    const held = await readMany(chain, tickets.map(t => ({ to: token, data: SEL.balanceOf + addrWord(t) })));
-    const openIdx = held.map((b, i) => (b != null && b > 0n ? i : -1)).filter(i => i >= 0);
-    const stakes = await readMany(chain, openIdx.map(i => ({ to: tickets[i], data: SEL.buyIn })));
-    open.open = openIdx.length;
-    open.held = amount(openIdx.reduce((sum, i) => sum + held[i], 0n));
-    open.stakes = stakes.every(b => b != null) ? amount(stakes.reduce((sum, b) => sum + b, 0n)) : null;
-  }
-  return { round, pools, open };
+  const listed = pools.reduce((n, p) => n + (p.bets || 0), 0);
+  if (pools.some(p => p.bets == null)) throw new Error('a round’s bet count didn’t load');
+  if (listed > MAX_TICKETS) return { round, pools, open: { bets: listed, skipped: `more than ${MAX_TICKETS} bets listed` } };
+  const refs = pools.flatMap(p => Array.from({ length: p.bets }, (_, i) => ({ round: p.round, i })));
+  const tickets = await readMany(chain, refs.map(r => ({ to: pool, data: SEL.ticketAt + word(r.round) + word(r.i) })), 500);
+  if (tickets.some(t => t == null)) throw new Error('some bet addresses didn’t load');
+  const addrsT = tickets.map(toAddr);
+  const held = await readMany(chain, addrsT.map(t => ({ to: token, data: SEL.balanceOf + addrWord(t) })), 500);
+  if (held.some(b => b == null)) throw new Error('some bet balances didn’t load');
+  const openIdx = held.map((b, i) => (b > 0n ? i : -1)).filter(i => i >= 0);
+  const stakes = await readMany(chain, openIdx.map(i => ({ to: addrsT[i], data: SEL.buyIn })), 500);
+  if (stakes.some(b => b == null)) throw new Error('some stakes didn’t load');
+  const byRound = {};
+  openIdx.forEach((i, k) => {
+    const r = refs[i].round;
+    const o = byRound[r] || (byRound[r] = { open: 0, held: 0n, stakes: 0n });
+    o.open++; o.held += held[i]; o.stakes += stakes[k];
+  });
+  pools.forEach(p => {
+    const o = byRound[p.round] || { open: 0, held: 0n, stakes: 0n };
+    p.open = { bets: o.open, held: amount(o.held), stakes: amount(o.stakes) };
+  });
+  const sum = key => pools.reduce((s, p) => s + p.open[key], 0);
+  return { round, pools, open: { bets: listed, open: sum('bets'), held: sum('held'), stakes: sum('stakes') } };
 }
 
 async function capitalSnapshot() {
