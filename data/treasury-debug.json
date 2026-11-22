@@ -1,154 +1,153 @@
 {
  "current": {
   "Arbitrum-OwnTokens": 0,
-  "OP Mainnet": 397574.90772,
-  "Ethereum-OwnTokens": 8389792.74516,
+  "OP Mainnet-OwnTokens": 255049.09518,
   "Polygon": 0.00007,
-  "Ethereum": 4822724.48502,
-  "OP Mainnet-OwnTokens": 258265.35204,
-  "Arbitrum": 454016.89827,
-  "OwnTokens": 8648058.0972
+  "Ethereum": 4803261.28367,
+  "Ethereum-OwnTokens": 8285312.10815,
+  "OP Mainnet": 397102.99188,
+  "Arbitrum": 452333.69939,
+  "OwnTokens": 8540361.20333
  },
  "last": {
   "Arbitrum-OwnTokens": {
    "tvl": {
-    "date": 1795263431,
+    "date": 1795328231,
     "totalLiquidityUSD": 0
    },
    "tokens": {
-    "date": 1795263431,
+    "date": 1795328231,
     "tokens": {}
    },
-   "days": 1299
+   "days": 1300
   },
-  "OP Mainnet": {
+  "OP Mainnet-OwnTokens": {
    "tvl": {
-    "date": 1795263431,
-    "totalLiquidityUSD": 397574
+    "date": 1795328231,
+    "totalLiquidityUSD": 255049
    },
    "tokens": {
-    "date": 1795263431,
+    "date": 1795328231,
     "tokens": {
-     "ETH": 18336.13236,
-     "OP": 0.7364,
-     "USDC": 159424.33398,
-     "USDT": 139110.38161,
-     "WETH": 16014.47399,
-     "VELO": 2.64773,
-     "GRG": 0.0018,
-     "OPP": 0.01166,
-     "WGC": 0.00001,
-     "S*USDC": 10.04044,
-     "OVER": 64676.14774
+     "THALES": 255049.09518
     }
    },
-   "days": 1285
-  },
-  "Ethereum-OwnTokens": {
-   "tvl": {
-    "date": 1795263431,
-    "totalLiquidityUSD": 8389792
-   },
-   "tokens": {
-    "date": 1795263431,
-    "tokens": {
-     "THALES": 8389792.74516
-    }
-   },
-   "days": 1285
+   "days": 1286
   },
   "Polygon": {
    "tvl": {
-    "date": 1795263431,
+    "date": 1795328231,
     "totalLiquidityUSD": 0
    },
    "tokens": {
-    "date": 1795263431,
+    "date": 1795328231,
     "tokens": {
      "SMT": 0.00007
     }
    },
-   "days": 1285
+   "days": 1286
   },
   "Ethereum": {
    "tvl": {
-    "date": 1795263431,
-    "totalLiquidityUSD": 4822724
+    "date": 1795328231,
+    "totalLiquidityUSD": 4803261
    },
    "tokens": {
-    "date": 1795263431,
+    "date": 1795328231,
     "tokens": {
-     "USDT": 776722.71937,
-     "USDC": 1104165.43329,
-     "SAFE": 711.65294,
-     "GRT": 378.024,
-     "MTV": 0.08755,
-     "EETH": 0,
-     "CVX": 0.74729,
-     "SNX": 9.06045,
-     "WETH": 415746.87504,
-     "CRV": 112.7072,
+     "USDT": 776481.52046,
+     "USDC": 1104207.93562,
+     "SAFE": 707.72036,
+     "GRT": 373.36105,
+     "AUSDC": 266.73658,
+     "MTV": 0.08736,
+     "CVX": 0.73092,
+     "SNX": 8.89908,
+     "WETH": 417067.91325,
+     "CRV": 118.4028,
      "ZRX": 0,
-     "DRV": 311.67736,
-     "GRG": 0.0009,
-     "SPK": 65.19576,
-     "YFTE": 0.03851,
+     "DRV": 315.42319,
+     "GRG": 0.00084,
+     "SPK": 63.48319,
+     "YFTE": 0.03881,
      "USDTB": 0.0001,
-     "ZIK": 0.08259,
+     "ZIK": 0.08363,
      "MUSD": 0.0001,
-     "HEX": 0.00043,
-     "ZKJ": 0.81098,
-     "AUSDC": 264.48645,
-     "ASNX": 0.18496,
-     "OVER": 2524234.69978
+     "HEX": 0.00042,
+     "ZKJ": 0.86715,
+     "ASNX": 0.18251,
+     "EETH": 0,
+     "OVER": 2503647.89625
     }
    },
-   "days": 1285
+   "days": 1286
   },
-  "OP Mainnet-OwnTokens": {
+  "Ethereum-OwnTokens": {
    "tvl": {
-    "date": 1795263431,
-    "totalLiquidityUSD": 258265
+    "date": 1795328231,
+    "totalLiquidityUSD": 8285312
    },
    "tokens": {
-    "date": 1795263431,
+    "date": 1795328231,
     "tokens": {
-     "THALES": 258265.35204
+     "THALES": 8285312.10815
     }
    },
-   "days": 1285
+   "days": 1286
+  },
+  "OP Mainnet": {
+   "tvl": {
+    "date": 1795328231,
+    "totalLiquidityUSD": 397102
+   },
+   "tokens": {
+    "date": 1795328231,
+    "tokens": {
+     "ETH": 18398.66133,
+     "OP": 0.75334,
+     "USDC": 159430.47065,
+     "USDT": 139044.08192,
+     "WETH": 16067.65473,
+     "VELO": 2.64744,
+     "GRG": 0.00168,
+     "OPP": 0.0117,
+     "S*USDC": 10.03811,
+     "OVER": 64148.67098
+    }
+   },
+   "days": 1286
   },
   "Arbitrum": {
    "tvl": {
-    "date": 1795263431,
-    "totalLiquidityUSD": 454016
+    "date": 1795328231,
+    "totalLiquidityUSD": 452333
    },
    "tokens": {
-    "date": 1795263431,
+    "date": 1795328231,
     "tokens": {
-     "ETH": 22097.2552,
-     "ARB": 1178.70436,
-     "WETH": 55740.36328,
-     "USDC": 271884.09376,
-     "AMC": 5.68594,
-     "WBTC": 19609.03972,
-     "OVER": 83501.75602
+     "ETH": 20519.40181,
+     "ARB": 1196.69493,
+     "WETH": 55978.59345,
+     "USDC": 271894.55932,
+     "AMC": 5.70082,
+     "WBTC": 19918.00509,
+     "OVER": 82820.74397
     }
    },
-   "days": 1299
+   "days": 1300
   },
   "OwnTokens": {
    "tvl": {
-    "date": 1795263431,
-    "totalLiquidityUSD": 8648058
+    "date": 1795328231,
+    "totalLiquidityUSD": 8540361
    },
    "tokens": {
-    "date": 1795263431,
+    "date": 1795328231,
     "tokens": {
-     "THALES": 8648058.0972
+     "THALES": 8540361.20333
     }
    },
-   "days": 1299
+   "days": 1300
   }
  }
 }
