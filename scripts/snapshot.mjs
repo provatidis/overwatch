@@ -8,7 +8,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
-import { OVER, DEAD, LOCKED_NAME, HOLDER_VALUE, THRESHOLDS, CHAIN_NAMES } from '../lib/config.js';
+import { OVER, HOUSE, DEAD, LOCKED_NAME, HOLDER_VALUE, THRESHOLDS, CHAIN_NAMES } from '../lib/config.js';
 import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
 import { money, tokens, fmtDate, ok } from '../lib/format.js';
 import { MULTICALL3, encodeAggregate3, decodeAggregate3 } from '../lib/multicall.js';
@@ -233,7 +233,8 @@ const ADMIN_SLOT = '0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b
 async function contractWatch() {
   const targets = [
     ...Object.entries(OVER.bettingPools).map(([chain, cfg]) => ({ chain, kind: 'USDC pool', proxy: cfg.pool })),
-    ...Object.entries(OVER.overPools).map(([chain, pool]) => ({ chain, kind: 'OVER pool', proxy: pool }))
+    ...Object.entries(OVER.overPools).map(([chain, pool]) => ({ chain, kind: 'OVER pool', proxy: pool })),
+    ...Object.entries(HOUSE.otherPools).flatMap(([chain, list]) => list.map(p => ({ chain, kind: `${p.asset.toUpperCase()} pool`, proxy: p.pool })))
   ];
   const out = [];
   for (const t of targets) {
@@ -334,6 +335,66 @@ function summarizeCapital(capital) {
   };
   const usdc = sum('usdc'), over = sum('over');
   return usdc && over ? { usdc, over } : null;
+}
+
+// The rest of the house's money, in coins: the treasury wallets' stablecoins, ETH (native and
+// wrapped) and BTC on all four chains; the casino games' and Speed Markets' bankrolls (their OVER
+// too); and the sportsbook pools in ETH and BTC (every round, plus the house's share of open bets).
+// Every balance must load, or the whole reading fails and the last good one is kept.
+const ETH_BALANCE = '0x4d2301cc'; // Multicall3 getEthBalance(address)
+const ASSETS = ['stable', 'eth', 'btc'];
+const blank = () => ({ stable: 0, eth: 0, btc: 0, over: 0 });
+async function houseSnapshot() {
+  const out = { wallets: { ...blank(), chains: {} }, games: { ...blank(), chains: {} }, pools: { eth: 0, btc: 0, chains: {} } };
+  for (const [chain, tk] of Object.entries(HOUSE.tokens)) {
+    const holders = [
+      ...OVER.treasury.map(a => ({ group: 'wallets', address: a.toLowerCase() })),
+      ...Object.entries(HOUSE.games[chain] || {}).map(([name, a]) => ({ group: 'games', name, address: a.toLowerCase() }))
+    ];
+    const calls = [], refs = [];
+    for (const h of holders) {
+      calls.push({ to: MULTICALL3, data: ETH_BALANCE + addrWord(h.address) }); refs.push({ h, asset: 'eth', decimals: 18 });
+      for (const asset of ASSETS) for (const [, [token, decimals]] of Object.entries(tk[asset] || {})) {
+        calls.push({ to: token, data: SEL.balanceOf + addrWord(h.address) }); refs.push({ h, asset, decimals });
+      }
+      if (h.group === 'games') { calls.push({ to: OVER.tokens[chain], data: SEL.balanceOf + addrWord(h.address) }); refs.push({ h, asset: 'over', decimals: OVER.decimals }); }
+    }
+    const vals = await readMany(chain, calls);
+    if (vals.some(v => v == null)) throw new Error(`a balance on ${CHAIN_NAMES[chain] || chain} didn’t load`);
+    vals.forEach((v, i) => {
+      const { h, asset, decimals } = refs[i];
+      const amt = Number(v / 10n ** BigInt(decimals - 6)) / 1e6;
+      const g = out[h.group], c = (g.chains[chain] ||= blank());
+      g[asset] += amt; c[asset] += amt;
+    });
+  }
+  for (const [chain, list] of Object.entries(HOUSE.otherPools)) {
+    for (const p of list) {
+      const [token, decimals] = HOUSE.tokens[chain][p.asset][p.token];
+      const c = await bettingCapital(chain, p.pool, token, decimals);
+      if (c.open.skipped) throw new Error(`${CHAIN_NAMES[chain] || chain} ${p.token} pool: ${c.open.skipped}`);
+      const idle = c.pools.reduce((a, x) => a + (x.amount || 0), 0);
+      const onBets = Math.max(0, c.open.held - c.open.stakes);
+      (out.pools.chains[chain] ||= []).push({ asset: p.asset, token: p.token, round: c.round, idle, defaultPool: (c.pools.find(x => x.round === 1) || {}).amount || 0, onBets, openBets: c.open.open, bets: c.open.bets });
+      out.pools[p.asset] += idle + onBets;
+    }
+  }
+  // Dollars to the dollar, ETH to 4 decimals, BTC to 6, OVER to the token.
+  const r = { stable: v => Math.round(v), eth: v => +v.toFixed(4), btc: v => +v.toFixed(6), over: v => Math.round(v) };
+  const tidy = o => { for (const k of Object.keys(r)) if (k in o) o[k] = r[k](o[k]); };
+  for (const g of [out.wallets, out.games]) { tidy(g); Object.values(g.chains).forEach(tidy); }
+  tidy(out.pools);
+  for (const list of Object.values(out.pools.chains)) for (const p of list) for (const k of ['idle', 'defaultPool', 'onBets']) p[k] = r[p.asset](p[k]);
+  return out;
+}
+
+// ETH and BTC in dollars, to put the house's coins on the same scale as its stablecoins.
+async function majorPrices() {
+  const j = await getJSON('https://coins.llama.fi/prices/current/coingecko:ethereum,coingecko:bitcoin');
+  const p = id => Number(j && j.coins && j.coins[`coingecko:${id}`] && j.coins[`coingecko:${id}`].price);
+  const eth = p('ethereum'), btc = p('bitcoin');
+  if (!(eth > 100 && eth < 100_000) || !(btc > 1000 && btc < 10_000_000)) throw new Error('ETH or BTC price missing or out of range');
+  return { eth, btc };
 }
 
 // OVER held by the OVER-collateral betting pools (the current round's pool contract on each chain).
@@ -640,12 +701,18 @@ async function main(now, OUT) {
   const contractsFresh = await step('pool contracts', contractWatch);
   const contracts = settle('contracts', contractsFresh ? carryContracts(prev && prev.contracts, contractsFresh, now) : null, prev && prev.contracts);
   const admin = settle('admin', contracts ? await step('admin multisigs', () => adminSnapshot(contracts)) : null, prev && prev.admin);
-  // The house's own OVER isn't free float: the treasury wallets, Overtime's admin multisigs, and its
-  // OVER in the betting pools (every round, plus its share of open OVER bets).
+  const [houseFresh, majorsFresh] = await Promise.all([step('house money', houseSnapshot), step('ETH and BTC prices', majorPrices)]);
+  const house = settle('house', houseFresh, prev && prev.house);
+  const majors = settle('majors', majorsFresh, prev && prev.majors);
+  // The house's own OVER isn't free float: the treasury wallets, Overtime's admin multisigs, its
+  // OVER in the betting pools (every round, plus its share of open OVER bets), and the OVER in the
+  // casino games' and Speed Markets' bankrolls.
   if (supplyFresh && betting && admin) {
+    const gamesOver = house ? house.games.over : 0;
     supplyFresh.adminOver = admin.total;
     supplyFresh.overPools = betting.over.total;
-    supplyFresh.house = supplyFresh.treasury + admin.total + betting.over.total;
+    supplyFresh.gamesOver = house ? gamesOver : null;
+    supplyFresh.house = supplyFresh.treasury + admin.total + betting.over.total + gamesOver;
     supplyFresh.float = supplyFresh.circulating - supplyFresh.house;
     supplyFresh.floatUsd = priceData && priceData.usd ? supplyFresh.float * priceData.usd : null;
   }
@@ -655,6 +722,7 @@ async function main(now, OUT) {
       ...DEAD, ...OVER.treasury, ...Object.values(OVER.locked).flat(), ...Object.values(OVER.overPools),
       ...Object.values(supplyFresh.chains).flatMap(c => (c.lockedBy || []).map(l => l.address)),
       ...Object.values((admin && admin.chains) || {}).flatMap(o => Object.keys(o)),
+      ...Object.values(HOUSE.games).flatMap(g => Object.values(g)),
       ...[...Object.values((capital && capital.usdc) || {}), ...Object.values((capital && capital.over) || {})].flatMap(v => (v && v.pools ? v.pools.map(p => p.address) : []))
     ].map(lower));
     supplyFresh.wallets = await step('wallet totals', () => walletTotals(supplyFresh.chains, exclude));
@@ -674,7 +742,10 @@ async function main(now, OUT) {
     price: fresh('price') ? priceData.usd : null,
     mcap: fresh('price') ? priceData.mcap : null,
     treasuryStable: fresh('treasury') && treasuryNow ? Math.round(treasuryNow.stable) : null,
-    def: 3,  // 2: betting money counts every pool and open bets; 3: house OVER counts the admin multisigs
+    // 2: betting money counts every pool and open bets; 3: house OVER counts the admin multisigs;
+    // 4: the house's money and OVER count the casino, Speed Markets and its ETH and BTC, with the
+    // treasury's stablecoins read onchain (Base included).
+    def: 4,
     poolUsdc: fresh('pools') ? pools.total : null,
     bettingUsdc: fresh('betting') ? betting.usdc.total : null,
     bettingOver: fresh('betting') ? betting.over.total : null,
@@ -683,7 +754,14 @@ async function main(now, OUT) {
     treasuryOver: fresh('supply') ? Math.round(supply.treasury) : null,
     poolOver: fresh('overPools') ? overPools.total : null,
     adminOver: fresh('admin') ? Math.round(admin.total) : null,
-    houseOver: fresh('supply') && fresh('betting') && fresh('admin') ? Math.round(supply.treasury + admin.total + betting.over.total) : null,
+    houseOver: fresh('supply') && fresh('betting') && fresh('admin') && fresh('house') ? Math.round(supply.treasury + admin.total + betting.over.total + house.games.over) : null,
+    walletStable: fresh('house') ? Math.round(house.wallets.stable) : null,
+    gamesUsdc: fresh('house') ? Math.round(house.games.stable) : null,
+    gamesOver: fresh('house') ? Math.round(house.games.over) : null,
+    eth: fresh('house') ? [house.wallets.eth, house.pools.eth, house.games.eth].map(v => +v.toFixed(3)) : null,  // coins: treasury wallets, betting pools, casino + Speed Markets
+    btc: fresh('house') ? [house.wallets.btc, house.pools.btc, house.games.btc].map(v => +v.toFixed(4)) : null,
+    ethPrice: fresh('majors') ? Math.round(majors.eth * 100) / 100 : null,
+    btcPrice: fresh('majors') ? Math.round(majors.btc) : null,
     liquidityUsd: fresh('liquidity') ? liq.totalUsd : null,
     volume24h: fresh('liquidity') ? liq.volume24h : null,
     checks: {}
@@ -720,6 +798,8 @@ async function main(now, OUT) {
     admin,
     betting,
     capital,
+    house,
+    majors,
     checks,
     errors: ctx.errors,
     alertDetail: { houseOver: fresh('supply') ? (moves => moves.length ? `House wallets that moved since the last reading:\n- ${moves.join('\n- ')}` : null)(walletMoves(prev && prev.supply, supply, prev && prev.admin, fresh('admin') ? admin : null)) : null }
@@ -742,8 +822,9 @@ async function main(now, OUT) {
   if (supply) ctx.log(`Supply${fresh('supply') ? '' : ' (carried over)'}: circulating ${Math.round(supply.circulating)}, treasury ${Math.round(supply.treasury)}`);
   if (overPools) ctx.log(`OVER pools${fresh('overPools') ? '' : ' (carried over)'}: ${tokens(overPools.total)} OVER (${Object.entries(overPools.chains).map(([c, v]) => `${c} ${tokens(v.over)} in round ${v.round}`).join(', ')})`);
   if (betting) ctx.log(`Betting money${fresh('betting') ? '' : ' (carried over)'}: ${money(betting.usdc.idle)} USDC in pools (${money(betting.usdc.defaultPools)} default) + ${money(betting.usdc.onBets)} house share of ${betting.usdc.openBets} open bets; ${tokens(betting.over.idle)} OVER in pools + ${tokens(betting.over.onBets)} on bets`);
+  if (house) ctx.log(`House money${fresh('house') ? '' : ' (carried over)'}: treasury wallets ${money(house.wallets.stable)} stablecoins, ${house.wallets.eth.toFixed(2)} ETH, ${house.wallets.btc.toFixed(4)} BTC; ETH/BTC pools ${house.pools.eth.toFixed(2)} ETH, ${house.pools.btc.toFixed(4)} BTC (${Object.entries(house.pools.chains).map(([c, l]) => l.map(p => `${c} ${p.token} ${p.idle.toFixed(3)} in pools + ${p.onBets.toFixed(3)} on ${p.openBets}/${p.bets} bets`).join(', ')).join('; ')}); casino + Speed Markets ${money(house.games.stable)} stablecoins, ${house.games.eth.toFixed(2)} ETH, ${house.games.btc.toFixed(4)} BTC, ${tokens(house.games.over)} OVER${majors ? `; ETH ${money(majors.eth)}, BTC ${money(majors.btc)}` : ''}`);
   if (pools) ctx.log(`Betting pools${fresh('pools') ? '' : ' (carried over)'}: ${money(pools.total)} idle USDC (${Object.entries(pools.chains).map(([c, v]) => `${c} ${money(v.usdc)} in round ${v.round}`).join(', ')})`);
-  if (flows.ready) ctx.log(`Money in/out over ${flows.days} days: result ${money(flows.result)}, buybacks ${money(flows.buys)}, stablecoins ${money(flows.change)}, other ${money(flows.other)}`);
+  if (flows.ready) ctx.log(`Money in/out over ${flows.days} days: result ${money(flows.result)}, buybacks ${money(flows.buys)}, house money ${money(flows.change)}, other ${money(flows.other)}`);
   if (liq) ctx.log(`Liquidity: ${money(liq.totalUsd)} in ${liq.pools.length} pools`);
   if (capital) for (const [kind, chains] of Object.entries(capital)) for (const [c, v] of Object.entries(chains)) {
     ctx.log(`Betting money (${kind}, ${c}): ${v.error ? 'failed: ' + v.error : `round ${v.round}; ${v.pools.map(p => `r${p.round}${p.round === 1 ? ' (default)' : ''} ${Math.round(p.amount)} [${p.bets} bets]`).join(', ')}; open bets ${v.open.skipped || `${v.open.open}/${v.open.bets} holding ${Math.round(v.open.held || 0)} (stakes ${v.open.stakes == null ? '?' : Math.round(v.open.stakes)})`}`}`);

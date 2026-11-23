@@ -17,9 +17,10 @@ test('a normal first run publishes everything and alerts nothing', async () => {
   assert.ok(Object.values(r.next.sources).every(s => s.ok));
   assert.equal(Math.round(r.next.supply.circulating), 53_933_062);
   // The house's OVER: treasury wallets, plus every round's OVER pool (current 745K, default 3 × 10K)
-  // and its share of open OVER bets (3 × (1,500 − 400)).
-  assert.equal(Math.round(r.next.supply.house), 15_654_317 + 778_300);
-  assert.equal(Math.round(r.next.supply.float), 53_933_062 - 16_432_617);
+  // and its share of open OVER bets (3 × (1,500 − 400)), plus 10K in a casino game on each L2.
+  assert.equal(Math.round(r.next.supply.house), 15_654_317 + 778_300 + 30_000);
+  assert.equal(r.next.supply.gamesOver, 30_000);
+  assert.equal(Math.round(r.next.supply.float), 53_933_062 - 16_462_617);
   assert.equal(r.next.pools.total, 503_000);
   assert.deepEqual(r.next.betting.usdc, {
     idle: 653_000, defaultPools: 150_000, onBets: 3_300, held: 4_500, stakes: 1_200, openBets: 6, total: 656_300,
@@ -30,7 +31,8 @@ test('a normal first run publishes everything and alerts nothing', async () => {
     }
   });
   assert.equal(r.history.at(-1).bettingUsdc, 656_300);
-  assert.equal(r.history.at(-1).def, 3);
+  assert.equal(r.history.at(-1).def, 4);
+  assert.equal(r.history.at(-1).houseOver, 16_462_617);
   assert.equal(r.stats.lastT, Math.floor(T0 / DAY) * DAY - DAY); // today is left out
   assert.equal(w.issues.length, 0);
 });
@@ -165,7 +167,8 @@ test('the job reads who controls the betting pools and where their money sits', 
   const w = makeWorld(), dir = await tempDir();
   const r = await runDay(w, dir);
   assert.deepEqual(r.next.errors, []);
-  assert.equal(r.next.contracts.length, 6);
+  assert.equal(r.next.contracts.length, 11);
+  assert.deepEqual([...new Set(r.next.contracts.map(c => c.kind))], ['USDC pool', 'OVER pool', 'ETH pool', 'BTC pool']);
   assert.ok(r.next.contracts.every(c => c.adminOwner === w.adminOwner && c.implementation && c.since === T0 && c.firstSeen === T0));
   const op = r.next.capital.usdc.optimism;
   assert.equal(op.round, 57);
@@ -203,7 +206,7 @@ test('an upgrade key moving on every pool is one issue; a failed read alerts not
   assert.deepEqual(failed.sent, []);
   w.fail.delete('contracts');
   const moved = await runDay(w, dir, 2);
-  assert.deepEqual(moved.sent, ['Betting pool contracts changed (6 changes)']);
+  assert.deepEqual(moved.sent, ['Betting pool contracts changed (11 changes)']);
   assert.equal(w.issues.length, 1);
 });
 
@@ -213,8 +216,9 @@ test('too many listed bets are counted, not read, and the rest still loads', asy
   const op = r.next.capital.usdc.optimism;
   assert.match(op.open.skipped, /more than/);
   assert.equal(op.pools.find(p => p.round === 1).amount, 50_000);
-  // Without every open bet read, there's no betting-money figure, and the job says so.
-  assert.deepEqual(r.next.errors, ['betting money: not every pool was read in full']);
+  // Without every open bet read, there's no betting-money figure, and the job says so. The ETH and
+  // BTC pools share the same limit, so the rest of the house's money isn't read either.
+  assert.deepEqual(r.next.errors, ['betting money: not every pool was read in full', 'house money: Optimism WETH pool: more than 60000 bets listed']);
   assert.equal(r.next.sources.betting.ok, false);
   assert.equal(r.next.betting, null);
 });
@@ -240,7 +244,7 @@ test('Overtime’s admin multisigs count as house OVER, and their outflows alert
   assert.deepEqual(r.next.errors, []);
   assert.equal(Math.round(r.next.admin.total), 2_100_000);
   assert.equal(Math.round(r.next.supply.adminOver), 2_100_000);
-  assert.equal(Math.round(r.next.supply.house), 15_654_317 + 2_100_000 + 778_300);
+  assert.equal(Math.round(r.next.supply.house), 15_654_317 + 2_100_000 + 778_300 + 30_000);
   assert.equal(r.history.at(-1).adminOver, 2_100_000);
   await runDay(w, dir, 1);
   w.wallets.optimism[w.adminOwner] -= 600_000;
@@ -257,4 +261,58 @@ test('ordinary wallets add up their OVER on every chain, Base included', async (
   w.wallets.base[whale] = 100_000;
   const r = await runDay(w, dir, 0);
   assert.deepEqual(r.next.supply.wallets, [{ address: whale, chains: { optimism: 250_000, base: 100_000 }, total: 350_000 }]);
+});
+
+test('the rest of the house’s money: stablecoins on every chain, ETH and BTC in coins, casino and Speed Markets', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  const r = await runDay(w, dir, 0);
+  assert.deepEqual(r.next.errors, []);
+  const h = r.next.house;
+  // Treasury wallets: 1.8M on Ethereum plus USDC on each L2, Base included (DefiLlama has no Base).
+  assert.equal(h.wallets.stable, 2_300_000);
+  assert.equal(h.wallets.chains.base.stable, 180_000);
+  assert.equal(h.wallets.eth, 262);                 // 250 + 5 + 2 (wrapped) + 5
+  assert.equal(h.wallets.btc, 0.3);
+  // ETH pools on three chains: 50 now + 15 default + 0.4 house share of open bets, each.
+  assert.equal(h.pools.eth, 196.2);
+  assert.equal(h.pools.btc, 2.2);
+  assert.deepEqual(h.pools.chains.base.map(p => [p.token, p.idle, p.defaultPool, p.onBets, p.openBets]), [['WETH', 65, 15, 0.4, 1], ['cbBTC', 0.7, 0.2, 0.4, 1]]);
+  assert.deepEqual([h.games.stable, h.games.eth, h.games.over], [12_000, 3, 30_000]);
+  const row = r.history.at(-1);
+  assert.deepEqual([row.walletStable, row.gamesUsdc, row.gamesOver], [2_300_000, 12_000, 30_000]);
+  assert.deepEqual(row.eth, [262, 196.2, 3]);
+  assert.deepEqual(row.btc, [0.3, 2.2, 0]);
+  assert.deepEqual([row.ethPrice, row.btcPrice], [1700, 60_000]);
+  // Until there are 30 days of these readings the bankroll grades the treasury alone.
+  assert.match(check(r, 'bankroll').text, /joins this check from/);
+  // A month on, with 20 ETH lost from the pools and ETH's price halved, only the lost coins count.
+  for (let d = 1; d <= 30; d++) await runDay(w, dir, d);
+  w.otherPool.eth -= 20 / 3;
+  w.prices.eth = 850;
+  const later = await runDay(w, dir, 31);
+  assert.equal(later.stats.bankrollMode, 'full');
+  const before = later.history.find(x => x.date === r.history.at(-1).date);
+  const v = x => x.walletStable + x.bettingUsdc + x.gamesUsdc + (x.eth[0] + x.eth[1] + x.eth[2]) * 850 + (x.btc[0] + x.btc[1] + x.btc[2]) * 60_000;
+  assert.ok(Math.abs(later.stats.change30 - (v(later.history.at(-1)) / v(before) - 1)) < 1e-9);
+  assert.ok(later.stats.change30 < 0 && later.stats.change30 > -0.01);
+});
+
+test('a failed read of the house’s money is carried over, not counted as zero', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  await runDay(w, dir, 0);
+  w.fail.add('game');
+  const r = await runDay(w, dir, 1);
+  assert.equal(r.next.sources.house.ok, false);
+  assert.ok(r.next.errors.some(e => /^house money: a balance on Optimism didn’t load/.test(e)));
+  assert.equal(r.next.house.games.over, 30_000);         // carried over
+  const row = r.history.at(-1);
+  assert.deepEqual([row.walletStable, row.gamesUsdc, row.gamesOver, row.eth, row.houseOver], [null, null, null, null, null]);
+  assert.equal(check(r, 'houseOver').stale, true);
+  assert.equal(w.issues.length, 0);
+  w.fail.delete('game');
+  w.fail.add('prices');
+  const p = await runDay(w, dir, 2);
+  assert.equal(p.next.sources.majors.ok, false);
+  assert.equal(p.history.at(-1).ethPrice, null);
+  assert.deepEqual(p.history.at(-1).eth, [262, 196.2, 3]);  // coins still counted
 });

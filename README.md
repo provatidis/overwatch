@@ -1,6 +1,6 @@
 # OVER watch
 
-A live tracker for [Overtime](https://www.overtime.io/) ($OVER): treasury stablecoins, the house result, buybacks and buyback yield, supply and free float, DEX liquidity and governance votes, with five thesis checks summed up under the headline.
+A live tracker for [Overtime](https://www.overtime.io/) ($OVER): the house's money, the house result, buybacks and buyback yield, supply and free float, DEX liquidity and governance votes, with five thesis checks summed up under the headline.
 
 [overwatch.day](https://overwatch.day/)
 
@@ -10,8 +10,9 @@ A GitHub Action (`.github/workflows/snapshot.yml`) runs `scripts/snapshot.mjs` o
 
 - **House result, buybacks and treasury** from DefiLlama's public API.
 - **Betting money** straight from the sportsbook's USDC and OVER pools on Optimism, Arbitrum and Base: every round's pool (current, later and the default pool that takes futures and parlays spanning rounds) plus the house's share of open bets (what each bet holds minus the bettor's stake). Every listed bet is read, in batches through Multicall3. The bankroll, the money reconciliation and the house's OVER all use this figure; history rows from before 21 Nov 2026 counted only the current round's pool and are left out of comparisons.
-- **Who controls the pools.** The betting pools are upgradeable (EIP-1967) proxies. Their code and the owner of their upgrade key are read daily.
-- **Supply** straight from the OVER contracts on Ethereum, Optimism, Arbitrum and Base through public RPCs, with the top holders from Blockscout to find the Chainlink bridge pool on Ethereum. Blockscout's public explorers now block scripts on some chains (Arbitrum and Base), so the job also takes an optional `BLOCKSCOUT_API_KEY` repo secret (free at dev.blockscout.com) and then uses Blockscout's keyed API first, sending the key in a header and keeping it out of logs. **Overtime's admin multisigs** (the wallets holding each chain's betting-pool upgrade key, found onchain daily) count as the house's OVER alongside the treasury wallets and betting pools: DefiLlama doesn't count them as treasury, but Overtime controls them, so they aren't free float here. The holders table combines each ordinary wallet's OVER across all four chains (read directly from each chain, so Base counts even without Base's holder list), and labels Overtime's admin multisig (read onchain as the owner of the pools' upgrade key), DEX pools and Safe multisigs, and says which chains it covers.
+- **The rest of the house's money**, read onchain: the treasury wallets' stablecoins, ETH (native and wrapped) and BTC on all four chains (DefiLlama's treasury doesn't cover Base); the sportsbook's ETH and BTC pools, which the treasury also funds alone; and the casino games' and Speed Markets' bankrolls, including their OVER. ETH and BTC are kept in coins, with the day's prices from DefiLlama's coins API alongside.
+- **Who controls the pools.** The betting pools (USDC, OVER, ETH and BTC) are upgradeable (EIP-1967) proxies. Their code and the owner of their upgrade key are read daily.
+- **Supply** straight from the OVER contracts on Ethereum, Optimism, Arbitrum and Base through public RPCs, with the top holders from Blockscout to find the Chainlink bridge pool on Ethereum. Blockscout's public explorers now block scripts on some chains (Arbitrum and Base), so the job also takes an optional `BLOCKSCOUT_API_KEY` repo secret (free at dev.blockscout.com) and then uses Blockscout's keyed API first, sending the key in a header and keeping it out of logs. **Overtime's admin multisigs** (the wallets holding each chain's betting-pool upgrade key, found onchain daily) count as the house's OVER alongside the treasury wallets, betting pools, casino and Speed Markets: DefiLlama doesn't count them as treasury, but Overtime controls them, so they aren't free float here. The holders table combines each ordinary wallet's OVER across all four chains (read directly from each chain, so Base counts even without Base's holder list), and labels Overtime's admin multisig (read onchain as the owner of the pools' upgrade key), DEX pools and Safe multisigs, and says which chains it covers.
 - **Liquidity** from DexScreener.
 - **Governance** from the `thalesgov.eth` space on Snapshot.
 - **Price and market cap** from CoinGecko.
@@ -28,20 +29,22 @@ It writes `data/latest.json` and adds a row to `data/history.json`, then commits
 
 ### Where the money went
 
-Since OIP-265 the house's money sits in two places: the treasury wallets (DefiLlama) and the betting pools, where the treasury is the only liquidity provider. The job reads each pool's current round contract onchain (`round()` → `roundPools(round)` → its USDC balance), so bettors' stakes in open bets are never counted; the house's own share of open bets isn't either. Each day's reading goes into `history.json`.
+Since OIP-265 the house's money sits in three places, all funded by the treasury: the treasury wallets, the betting pools (USDC, ETH and BTC; every round's pool plus the house's share of open bets, never the bettors' stakes) and the casino games' and Speed Markets' bankrolls. DefiLlama's house result counts what all of them win and lose. Each day's reading goes into `history.json`, with ETH and BTC in coins.
 
-The reconciliation compares, over up to 30 days of those readings, what the house made minus buybacks with what actually happened to treasury + pool stablecoins. The difference is "other flows": running costs, DEX incentives, swaps into other tokens, and the timing of open bets. It shows once there are seven days of readings. The bankroll check adds pool capital once there are 30 days of them, and until then grades the treasury alone, so the comparison is always like for like.
+The house's money is valued with one ETH price and one BTC price, the latest reading's, on every date, so only coins won, lost or spent move it, never their market price. A swap between ETH and stablecoins shows only by what it gained or lost.
+
+The reconciliation compares, over up to 30 days of those readings, what the house made minus buybacks with what actually happened to that money. The difference is "other flows": running costs, DEX incentives, swaps, and the timing of open bets. It shows once there are seven days of readings. The bankroll check moves to that full figure once there are 30 days of readings, and until then grades the treasury's stablecoins from DefiLlama alone, so the comparison is always like for like. History rows from before 23 Nov 2026 (definition 4) counted less and are left out of both.
 
 ## Alerts
 
-Five checks run every day: the house bankroll, the house-result trend, **buyback cover** (the 90-day house result divided by buybacks: Healthy from 1.5×, Alert below 1×, with 30 and 7 days and the weekly record since the method change shown for context, since a sportsbook's week is noisy), the **buyback rate** (last 7 days against the 30 before; a cut or a pause turns it amber or red) and **house OVER** (OVER held by the treasury wallets, Overtime's admin multisigs and the OVER betting pools, over 7 days). OVER moving between the wallets and the pools doesn't count as a change. A line under the headline sums up all five, worst first, and each check opens with one line on why it matters, for readers new to the case.
+Five checks run every day: the house bankroll, the house-result trend, **buyback cover** (the 90-day house result divided by buybacks: Healthy from 1.5×, Alert below 1×, with 30 and 7 days and the weekly record since the method change shown for context, since a sportsbook's week is noisy), the **buyback rate** (last 7 days against the 30 before; a cut or a pause turns it amber or red) and **house OVER** (OVER held by the treasury wallets, Overtime's admin multisigs, the OVER betting pools, the casino and Speed Markets, over 7 days). OVER moving between them doesn't count as a change. A line under the headline sums up all five, worst first, and each check opens with one line on why it matters, for readers new to the case.
 
 When a thesis check gets worse (Healthy → Watch → Alert), the job opens an issue in this repo, and it closes that issue when the check is Healthy again. Checks running on stale data, or not yet comparable, never alert. A treasury OVER alert lists the wallets that moved and by how much. A buyback raise of 20% or more gets its own one-off issue. A change to a betting pool's code, or to who holds its upgrade key, opens one issue listing every change that day. It also opens an issue for every new Snapshot vote, saying who votes on it. GitHub emails you about new issues in your own repos, so watching the repo is enough.
 
 ## Tuning
 
 - Check thresholds: `THRESHOLDS` in `lib/config.js`.
-- Betting pools read onchain: `OVER.bettingPools` (USDC) and `OVER.overPools` (OVER) in `lib/config.js`.
+- Betting pools read onchain: `OVER.bettingPools` (USDC), `OVER.overPools` (OVER) and `HOUSE.otherPools` (ETH and BTC) in `lib/config.js`; casino and Speed Markets contracts and the tokens counted: `HOUSE.games` and `HOUSE.tokens`.
 - Treasury wallets counted in the supply panel: `OVER.treasury` in `lib/config.js`. If the panel's note shows a big gap between DefiLlama's own-token value and the treasury figure, a wallet is missing.
 - Run the job by hand: Actions → Daily snapshot → Run workflow.
 
@@ -51,7 +54,7 @@ When a thesis check gets worse (Healthy → Watch → Alert), the job opens an i
 npm test
 ```
 
-Node's built-in test runner, no dependencies. `test/metrics.test.js` covers the checks, buyback cover's history and the money reconciliation. `test/snapshot.test.js` runs the real snapshot job day by day against a fake world (`test/fake-world.js`) and stages every failure found so far: empty, short or stale replies, a down feed, a bridge mismatch, a failed pool read, an empty proposal list, buyback cuts and raises, OVER leaving the house and alerts closing themselves. Tests run on every push, and the daily job runs them first, so a broken change never publishes data.
+Node's built-in test runner, no dependencies. `test/metrics.test.js` covers the checks, buyback cover's history and the money reconciliation. `test/snapshot.test.js` runs the real snapshot job day by day against a fake world (`test/fake-world.js`) and stages every failure found so far: empty, short or stale replies, a down feed, a bridge mismatch, a failed pool read, a failed read of the casino or a price feed, an empty proposal list, buyback cuts and raises, OVER leaving the house and alerts closing themselves. Tests run on every push, and the daily job runs them first, so a broken change never publishes data.
 
 ## Local preview
 
