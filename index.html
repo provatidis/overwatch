@@ -121,8 +121,8 @@
 
       <section class="section wrap" aria-labelledby="supply-title">
         <h2 id="supply-title">Supply and <em>float.</em></h2>
-        <p class="sub">Read straight from the OVER contracts on Ethereum, Optimism, Arbitrum and Base. Burned counts every burn, including tokens burned from bets placed in OVER. The house’s OVER is what sits in the treasury wallets, Overtime’s admin multisigs, the OVER betting pools (the treasury is their only liquidity provider) and the casino’s and Speed Markets’ bankrolls. Free float is everything else.</p>
-        <div class="tiles four" id="supply-tiles"></div>
+        <p class="sub">Read straight from the OVER contracts on Ethereum, Optimism, Arbitrum and Base. Burned counts every burn, including tokens burned from bets placed in OVER. The house’s OVER is what sits in the treasury wallets, Overtime’s admin multisigs, the OVER betting pools (the treasury is their only liquidity provider) and the casino’s and Speed Markets’ bankrolls. Estimated free float is circulating supply less those house holdings and the OVER held in the buyback contracts on Optimism and Base.</p>
+        <div class="tiles" id="supply-tiles"></div>
         <div class="card">
           <h2>Circulating supply</h2>
           <p class="sub" id="supply-sub">One reading a day from the snapshot job.</p>
@@ -131,7 +131,7 @@
           <p class="fine" id="supply-note"></p>
           <details><summary>Show by chain</summary><div class="table-wrap" id="supply-table"></div></details>
           <details><summary>Largest other holders</summary>
-            <p class="fine" id="holders-note">Top wallets that aren’t the bridge pool, a burn address or a listed treasury wallet.</p>
+            <p class="fine" id="holders-note">Largest holders outside the tracked house wallets and buyback contracts.</p>
             <div class="table-wrap" id="holders-table"></div>
           </details>
         </div>

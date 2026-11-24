@@ -9,7 +9,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { OVER, HOUSE, DEAD, LOCKED_NAME, HOLDER_VALUE, THRESHOLDS, CHAIN_NAMES } from '../lib/config.js';
-import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
+import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, houseOverContext, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
 import { money, tokens, fmtDate, ok } from '../lib/format.js';
 import { MULTICALL3, encodeAggregate3, decodeAggregate3 } from '../lib/multicall.js';
 
@@ -149,7 +149,7 @@ async function topHolders(chain, token) {
 
 // Every read must succeed: a failed balance read must never count as zero, or a missing bridge
 // balance would show tens of millions of extra OVER in circulation.
-async function supplySnapshot(price) {
+async function supplySnapshot() {
   const chains = {};
   const lower = s => s.toLowerCase();
   const treasurySet = [...new Set(OVER.treasury.map(lower))];
@@ -189,10 +189,14 @@ async function supplySnapshot(price) {
     circulating,
     burned: OVER.maxSupply - circulating,
     treasury,
-    float: circulating - treasury,
-    floatUsd: price ? (circulating - treasury) * price : null,
     chains
   };
+}
+
+async function buybackInventorySnapshot() {
+  const balances = await Promise.all(Object.entries(OVER.buybackContracts).map(([chain, address]) =>
+    balanceOf(chain, OVER.tokens[chain], address)));
+  return balances.reduce((total, amount) => total + amount, 0);
 }
 
 // Idle USDC in each chain's sportsbook liquidity pool: the current round's pool contract.
@@ -657,7 +661,7 @@ async function main(now, OUT) {
 
   const series = (name, url, prevRows) => step(name, async () =>
     checkSeries(name, dailySeries(await getJSON(url)).map(p => [p.t, Math.round(p.v)]), prevRows, now));
-  const [revFresh, buyFresh, treJ, price, liquidity, governance, poolsFresh] = await Promise.all([
+  const [revFresh, buyFresh, treJ, price, liquidity, governance, poolsFresh, inventoryFresh] = await Promise.all([
     series('house result', 'https://api.llama.fi/summary/fees/overtime?dataType=dailyRevenue&excludeTotalDataChartBreakdown=true', prev && prev.revenue),
     series('buybacks', 'https://api.llama.fi/summary/fees/overtime?dataType=dailyHoldersRevenue&excludeTotalDataChartBreakdown=true', prev && prev.buybacks),
     step('treasury', async () => {
@@ -668,7 +672,8 @@ async function main(now, OUT) {
     step('price', priceSnapshot),
     step('liquidity', liquiditySnapshot),
     step('governance', governanceSnapshot),
-    step('betting pools', poolSnapshot)
+    step('betting pools', poolSnapshot),
+    step('buyback inventory', buybackInventorySnapshot)
   ]);
 
   // Each source is either fresh today or carried over from the last good snapshot with its own
@@ -682,6 +687,8 @@ async function main(now, OUT) {
     return prevValue != null ? prevValue : null;
   }
 
+  const fresh = name => sources[name] && sources[name].ok;
+  const inventory = settle('buybackInventory', inventoryFresh, prev?.supply?.buybackInventory);
   const revRows = settle('revenue', revFresh, prev && prev.revenue);
   const buyRows = settle('buybacks', buyFresh, prev && prev.buybacks);
   const treasury = treJ ? parseTreasury(treJ) : null;
@@ -692,7 +699,7 @@ async function main(now, OUT) {
   let priceData = price;
   if (priceData && !(priceData.mcap > 0) && treJ && Number(treJ.mcap) > 0) priceData.mcap = Number(treJ.mcap);
   priceData = settle('price', priceData, prev && prev.price);
-  const supplyFresh = await step('supply', () => supplySnapshot(priceData && priceData.usd));
+  const supplyFresh = await step('supply', supplySnapshot);
   const overPools = settle('overPools', await step('OVER pools', overPoolSnapshot), prev && prev.overPools);
   const capital = await step('betting money', capitalSnapshot);
   const bettingFresh = summarizeCapital(capital);
@@ -713,13 +720,11 @@ async function main(now, OUT) {
     supplyFresh.overPools = betting.over.total;
     supplyFresh.gamesOver = house ? gamesOver : null;
     supplyFresh.house = supplyFresh.treasury + admin.total + betting.over.total + gamesOver;
-    supplyFresh.float = supplyFresh.circulating - supplyFresh.house;
-    supplyFresh.floatUsd = priceData && priceData.usd ? supplyFresh.float * priceData.usd : null;
   }
   if (supplyFresh) {
     const lower = a => a.toLowerCase();
     const exclude = new Set([
-      ...DEAD, ...OVER.treasury, ...Object.values(OVER.locked).flat(), ...Object.values(OVER.overPools),
+      ...DEAD, ...OVER.treasury, ...Object.values(OVER.buybackContracts), ...Object.values(OVER.locked).flat(), ...Object.values(OVER.overPools),
       ...Object.values(supplyFresh.chains).flatMap(c => (c.lockedBy || []).map(l => l.address)),
       ...Object.values((admin && admin.chains) || {}).flatMap(o => Object.keys(o)),
       ...Object.values(HOUSE.games).flatMap(g => Object.values(g)),
@@ -727,14 +732,19 @@ async function main(now, OUT) {
     ].map(lower));
     supplyFresh.wallets = await step('wallet totals', () => walletTotals(supplyFresh.chains, exclude));
   }
-  const supply = settle('supply', supplyFresh, prev && prev.supply);
+  const supply = settle('supply', supplyFresh, prev?.supply ? { ...prev.supply } : null);
+  if (supply) {
+    supply.buybackInventory = inventory;
+    const complete = ['supply', 'contracts', 'admin', 'betting', 'house', 'buybackInventory'].every(fresh);
+    supply.float = complete ? supply.circulating - supply.house - inventory : null;
+    supply.floatUsd = ok(supply.float) && fresh('price') ? supply.float * priceData.usd : null;
+  }
   const liq = settle('liquidity', liquidity, prev && prev.liquidity);
   const gov = settle('governance', governance, prev && prev.governance);
 
   // Today's reading of the house's stablecoins goes into history first, so the checks and the
   // money reconciliation see it. History keeps only fresh readings.
   const date = new Date(now * 1000).toISOString().slice(0, 10);
-  const fresh = name => sources[name] && sources[name].ok;
   const treasuryNow = treasury && treasury.length ? treasury[treasury.length - 1] : null;
   const ownUsd = treasuryNow ? treasuryNow.own : (prev ? prev.treasuryOwnUsd : null);
   const row = {
@@ -751,6 +761,8 @@ async function main(now, OUT) {
     bettingOver: fresh('betting') ? betting.over.total : null,
     circulating: fresh('supply') ? Math.round(supply.circulating) : null,
     burned: fresh('supply') ? Math.round(supply.burned) : null,
+    buybackInventory: fresh('buybackInventory') ? Math.round(inventory) : null,
+    float: ok(supply?.float) ? Math.round(supply.float) : null,
     treasuryOver: fresh('supply') ? Math.round(supply.treasury) : null,
     poolOver: fresh('overPools') ? overPools.total : null,
     adminOver: fresh('admin') ? Math.round(admin.total) : null,
@@ -779,6 +791,14 @@ async function main(now, OUT) {
   const checks = computeChecks(stats).map(c => ({ ...c, stale: c.sources.some(n => !sources[n] || !sources[n].ok) }));
   row.checks = Object.fromEntries(checks.map(c => [c.id, c.stale ? `${c.state} (stale)` : c.state]));
   const flows = computeFlows(readings, rev, buy);
+  const detail = [];
+  if (fresh('supply')) {
+    const moves = walletMoves(prev?.supply, supply, prev?.admin, fresh('admin') ? admin : null);
+    if (moves.length) detail.push(`House wallets that moved since the last reading:\n- ${moves.join('\n- ')}`);
+    const context = houseOverContext(history, now, stats.overBase?.t);
+    for (const { label, href } of context.transfers) detail.push(`[${label}](${href})`);
+    if (ok(supply.float) && context.floatDay) detail.push(context.floatDay.text);
+  }
 
   const next = {
     generatedAt: now,
@@ -802,7 +822,7 @@ async function main(now, OUT) {
     majors,
     checks,
     errors: ctx.errors,
-    alertDetail: { houseOver: fresh('supply') ? (moves => moves.length ? `House wallets that moved since the last reading:\n- ${moves.join('\n- ')}` : null)(walletMoves(prev && prev.supply, supply, prev && prev.admin, fresh('admin') ? admin : null)) : null }
+    alertDetail: { houseOver: detail.join('\n\n') || null }
   };
 
   await writeFile(path.join(OUT, 'latest.json'), JSON.stringify(next));

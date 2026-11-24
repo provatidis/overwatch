@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DAY, completeDays, aggregate, parseTreasury, computeStats, computeChecks, computeFlows,
-  readingsFromHistory, overReadingsFromHistory, voterGroup, FIRST_COMPARABLE
+  readingsFromHistory, overReadingsFromHistory, houseOverContext, voterGroup, FIRST_COMPARABLE
 } from '../lib/metrics.js';
 import { METHOD_CHANGE } from '../lib/config.js';
 import { times } from '../lib/format.js';
@@ -212,4 +212,35 @@ test('money reconciliation: other flows are what the result minus buybacks does 
 test('voter groups: TC-NFT is the council, OVER is holders', () => {
   assert.equal(voterGroup({ symbol: 'TC-NFT', strategies: ['erc20-balance-of'] }).council, true);
   assert.equal(voterGroup({ symbol: 'OVER', strategies: ['erc20-balance-of'] }).council, false);
+});
+
+test('verified transfers are confined to the observed comparison and published receipt times', () => {
+  const rows = [23, 24, 25].map(d => ({ date: `2026-11-${d}`, def: 4, houseOver: 100 }));
+  const sec = time => Date.parse(`2026-11-24T${time}Z`) / 1000;
+  const receipts = t => houseOverContext(rows, t, day(2026, 11, 23)).transfers;
+  assert.equal(receipts(sec('13:45:22')).length, 0);
+  assert.match(receipts(sec('13:45:23'))[0].label, /800,000 OVER/);
+  assert.deepEqual(receipts(sec('13:46:34')), receipts(sec('13:45:23')));
+  const both = receipts(sec('13:46:35'));
+  assert.equal(both.length, 2);
+  assert.match(both[1].label, /580,000 OVER/);
+  assert.ok(both.every(r => /^https:\/\/[^/]+\/tx\/0x[a-f0-9]{64}$/.test(r.href)));
+  assert.deepEqual(receipts(day(2026, 11, 25)), both);
+  assert.equal(houseOverContext(rows, day(2026, 11, 25), day(2026, 11, 24)).transfers.length, 0);
+  assert.equal(houseOverContext(rows.slice(0, 1), sec('17:00:00')).transfers.length, 0);
+});
+
+test('float change needs two adjacent days with comparable inventory coverage', () => {
+  const first = { date: '2026-11-23', def: 4, houseOver: 19_923_412, float: 33_440_133, buybackInventory: 569_517 };
+  const last = { date: '2026-11-24', def: 4, houseOver: 19_665_420, float: 33_464_578, buybackInventory: 3_064 };
+  const read = (baseline, current = last) => houseOverContext([baseline, current], day(2026, 11, 24) + 16 * 3600).floatDay;
+  assert.equal(read(first).change, 24_445);
+  assert.equal(read(first).ratio, 24_445 / first.float);
+  assert.match(read(first).text, /\+24,445 OVER \(\+0\.07%\)/);
+  for (const bad of [{ date: '2026-11-22' }, { def: 3 }, { float: undefined }, { houseOver: null }, { buybackInventory: null }]) {
+    assert.equal(read({ ...first, ...bad }), null);
+  }
+  assert.equal(read(first, { ...last, buybackInventory: null }), null);
+  assert.equal(read({ ...first, float: 0 }).ratio, null);
+  assert.equal(read(first, { ...last, float: first.float, buybackInventory: 0 }).change, 0);
 });

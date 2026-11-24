@@ -108,7 +108,9 @@
    "cover": "good",
    "rate": "good",
    "houseOver": "pending"
-  }
+  },
+  "buybackInventory": 569517,
+  "float": 33440133
  },
  {
   "date": "2026-11-24",
@@ -148,6 +150,8 @@
    "cover": "good",
    "rate": "good",
    "houseOver": "watch"
-  }
+  },
+  "buybackInventory": 3064,
+  "float": 33464578
  }
 ]

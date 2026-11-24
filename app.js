@@ -3,7 +3,7 @@ import { ANNOTATIONS, CHAIN_NAMES, EXPLORERS, OVER, HOUSE, DEAD, METHOD_CHANGE }
 import { money, tokens, coins, axisMoney, axisTokens, pct, fmtDate, shortMonth, ok } from './lib/format.js';
 import {
   DAY, dailySeries, fromPairs, parseTreasury, treasuryFromRows, readingsFromHistory, overReadingsFromHistory, completeDays, aggregate, periodStart,
-  periodNext, periodLabel, computeStats, computeChecks, computeFlows, FLOWS_MIN_DAYS, voterGroup, GRADE, RANK
+  periodNext, periodLabel, computeStats, computeChecks, computeFlows, houseOverContext, FLOWS_MIN_DAYS, voterGroup, GRADE, RANK
 } from './lib/metrics.js';
 
 // ---------- Theme (same storage key as provatidis.com) ----------
@@ -344,6 +344,12 @@ function check(parent, c) {
   h.appendChild(document.createTextNode(` · ${c.title}`));
   if (c.why) el('p', 'check-why', c.why, body);
   el('p', 'check-text', c.text, body);
+  if (c.transfers?.length) {
+    el('p', 'check-evidence', 'Verified transfers', body);
+    const list = el('ul', 'check-receipts', null, body);
+    for (const { label, href } of c.transfers) link(href, label, el('li', null, null, list));
+  }
+  if (c.floatDay) el('p', 'check-evidence', c.floatDay.text, body);
   if (c.staleSince) el('p', 'stale-note', `Today’s update failed, so this uses data from ${c.staleSince}. No alerts until it refreshes.`, body);
 }
 
@@ -364,6 +370,11 @@ function verdict(parent, checks) {
     const text = el('span', 'verdict-text', null, a);
     el('span', 'sr-only', GRADE[c.state][1] + ': ', text);
     text.append(c.short || c.title);
+    if ((c.state === 'watch' || c.state === 'alert') && c.floatDay) {
+      const { change, to } = c.floatDay;
+      const sign = change < 0 ? '−' : change > 0 ? '+' : '';
+      el('small', 'verdict-detail', `Estimated float ${sign}${coins(Math.abs(change))} OVER on ${fmtDate(to)}`, text);
+    }
     if (c.staleSince) el('span', 'verdict-stale', ' (earlier data)', text);
   });
 }
@@ -371,7 +382,7 @@ function verdict(parent, checks) {
 // ---------- State ----------
 const state = { range: 365, mode: 'month', data: null, now: null, rev: null, buy: null, treasury: null, price: null, history: [], loaded: false };
 
-const SOURCE_NAMES = { admin: 'admin multisigs', revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', overPools: 'OVER pools', betting: 'betting money', house: 'casino, Speed Markets, ETH and BTC', majors: 'ETH and BTC prices', contracts: 'pool contracts', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
+const SOURCE_NAMES = { buybackInventory: 'buyback inventory', admin: 'admin multisigs', revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', overPools: 'OVER pools', betting: 'betting money', house: 'casino, Speed Markets, ETH and BTC', majors: 'ETH and BTC prices', contracts: 'pool contracts', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
 const staleSources = () => Object.entries((state.data && state.data.sources) || {}).filter(([, v]) => !v.ok);
 const sourceDate = name => { const v = state.data && state.data.sources && state.data.sources[name]; return v && v.asOf ? fmtDate(v.asOf) : 'an earlier day'; };
 
@@ -428,6 +439,12 @@ function renderSummary() {
     const bad = c.sources.filter(n => failed.has(n));
     return { ...c, staleSince: bad.length ? sourceDate(bad[0]) : null };
   });
+  const houseCheck = checks.find(c => c.id === 'houseOver');
+  if (houseCheck && !houseCheck.staleSince && state.data) {
+    const context = houseOverContext(state.history, state.data.generatedAt, s.overBase?.t);
+    houseCheck.transfers = context.transfers;
+    if (state.data.sources?.buybackInventory?.ok && ok(state.data.supply?.float)) houseCheck.floatDay = context.floatDay;
+  }
   [...checks].sort((a, b) => pos(a) - pos(b)).forEach(c => check(list, c));
   verdict($('verdict'), checks);
 
@@ -542,7 +559,21 @@ function renderSupply() {
   } else {
     tile(tiles, 'Held by the treasury', tokens(sup.treasury), { unit: 'OVER', note: `${pct(sup.treasury / sup.circulating)} of circulating supply. The OVER betting pools didn’t load.` });
   }
-  tile(tiles, 'Free float', tokens(sup.float), { unit: 'OVER', note: ok(price) ? `Worth ${money(sup.float * price)} at today’s price` : null });
+  const sources = state.data.sources || {};
+  const inventory = sup.buybackInventory;
+  tile(tiles, 'Buyback inventory', ok(inventory) ? coins(inventory) : '—', {
+    unit: 'OVER',
+    note: ok(inventory)
+      ? (sources.buybackInventory?.ok ? 'Held in the Optimism and Base buyback contracts.' : `Last verified ${sourceDate('buybackInventory')}.`)
+      : 'Awaiting balances from both buyback contracts.'
+  });
+  const floatReady = ['supply', 'betting', 'admin', 'house', 'contracts', 'buybackInventory'].every(name => sources[name]?.ok)
+    && ok(inventory) && ok(sup.float);
+  tile(tiles, 'Estimated free float', floatReady ? tokens(sup.float) : '—', {
+    unit: 'OVER',
+    note: floatReady ? (ok(price) ? `Worth ${money(sup.float * price)} at the displayed OVER price.` : null)
+      : 'Requires fresh readings for supply, house holdings and buyback inventory.'
+  });
 
   const hist = state.history.filter(h => ok(h.circulating)).map(h => ({ t: Date.parse(h.date) / 1000, v: h.circulating }));
   if (hist.length >= 2) {
@@ -586,7 +617,7 @@ function renderSupply() {
   const listed = [];
   for (const [chain, c] of Object.entries(sup.chains || {})) {
     for (const h of c.holders || []) {
-      if (!h.address || skip.has(h.address) || (c.lockedBy || []).some(l => l.address === h.address)) continue;
+      if (!h.address || OVER.buybackContracts[chain] === h.address.toLowerCase() || skip.has(h.address) || (c.lockedBy || []).some(l => l.address === h.address)) continue;
       listed.push({ ...h, chain });
     }
   }
@@ -618,7 +649,7 @@ function renderSupply() {
   const missing = missingRaw.map(([k]) => chainName(k));
   const paywalled = missingRaw.length > 0 && missingRaw.every(([, c]) => /\b402\b/.test(c.holdersError || ''));
   const list = names => names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
-  $('holders-note').textContent = `The largest holders outside the house: not the bridge pool, a burn address, a treasury wallet, an Overtime admin multisig, one of the house’s betting pools or a casino or Speed Markets contract. ${covered.length ? `They come from the holder lists on ${list(covered)}.` : ''}`
+  $('holders-note').textContent = `The largest holders outside the house: excluding the bridge pool, burn addresses, buyback contracts, treasury wallets, Overtime admin multisigs, one of the house’s betting pools or a casino or Speed Markets contract. ${covered.length ? `They come from the holder lists on ${list(covered)}.` : ''}`
     + (combined ? ' An ordinary wallet shows its OVER on all four chains added up, Base included, read straight from each chain; contracts are listed per chain.' : '')
     + (missing.length ? ` ${list(missing)}’s own list ${missing.length === 1 ? 'isn’t' : 'aren’t'} included: ${paywalled
       ? `Blockscout only serves ${missing.length === 1 ? 'its' : 'their'} holder list${missing.length === 1 ? '' : 's'} on a paid plan, so a wallet holding OVER only there can be missing.`

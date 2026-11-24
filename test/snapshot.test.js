@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { OVER } from '../lib/config.js';
 import { makeWorld, runDay, tempDir, DAY, T0, ADDR } from './fake-world.js';
 
 const latest = async dir => JSON.parse(await readFile(path.join(dir, 'latest.json'), 'utf8'));
@@ -315,4 +316,53 @@ test('a failed read of the house’s money is carried over, not counted as zero'
   assert.equal(p.next.sources.majors.ok, false);
   assert.equal(p.history.at(-1).ethPrice, null);
   assert.deepEqual(p.history.at(-1).eth, [262, 196.2, 3]);  // coins still counted
+});
+
+test('a buyback reduces float once, even when its tokens later reach treasury and are burned', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  const { optimism, base } = OVER.buybackContracts;
+  w.wallets.optimism[optimism] = 570_000;
+  w.wallets.base[base] = 1_000;
+  const start = await runDay(w, dir, 0);
+  assert.equal(start.next.supply.buybackInventory, 571_000);
+  assert.equal(start.next.supply.float, start.next.supply.circulating - start.next.supply.house - 571_000);
+
+  w.wallets.optimism[optimism] += 13_547;
+  const bought = await runDay(w, dir, 1);
+  assert.equal(bought.next.supply.float, start.next.supply.float - 13_547);
+
+  w.wallets.optimism[optimism] -= 580_000;
+  w.wallets.optimism[ADDR.TRE] += 580_000;
+  const moved = await runDay(w, dir, 2);
+  assert.equal(moved.next.supply.house, bought.next.supply.house + 580_000);
+  assert.equal(moved.next.supply.float, bought.next.supply.float);
+
+  w.wallets.ethereum[ADDR.TRE] -= 800_000;
+  w.dead += 800_000;
+  const burned = await runDay(w, dir, 3);
+  assert.equal(burned.next.supply.circulating, moved.next.supply.circulating - 800_000);
+  assert.equal(burned.next.supply.float, moved.next.supply.float);
+  assert.equal(burned.history.at(-1).float, Math.round(burned.next.supply.float));
+});
+
+test('an incomplete inventory read withholds adjusted float while House OVER keeps its own grade', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  w.wallets.optimism[OVER.buybackContracts.optimism] = 573_000;
+  const first = await runDay(w, dir, 0);
+  w.fail.add('buyback-inventory-base');
+  const failed = await runDay(w, dir, 1);
+  assert.deepEqual(failed.next.sources.buybackInventory, { ok: false, asOf: first.next.generatedAt });
+  assert.equal(failed.next.supply.buybackInventory, 573_000);
+  assert.equal(failed.next.supply.float, null);
+  assert.equal(failed.next.supply.floatUsd, null);
+  assert.equal(failed.history.at(-1).float, null);
+  assert.equal(failed.history.at(-1).buybackInventory, null);
+  assert.equal(check(failed, 'houseOver').stale, false);
+
+  w.fail.clear();
+  w.wallets.optimism[OVER.buybackContracts.optimism] = 0;
+  const recovered = await runDay(w, dir, 2);
+  assert.equal(recovered.next.sources.buybackInventory.ok, true);
+  assert.equal(recovered.history.at(-1).buybackInventory, 0);
+  assert.equal(recovered.next.supply.float, recovered.next.supply.circulating - recovered.next.supply.house);
 });

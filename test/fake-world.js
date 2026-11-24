@@ -189,6 +189,7 @@ export function makeWorld(over = {}) {
     }
     if (to === lc(OVER.tokens[c])) {
       if (data === '0x18160ddd') return units(w.supply[c], 18);
+      if (who === OVER.buybackContracts[c] && w.fail.has('buyback-inventory-' + c)) throw new Error('inventory balance unavailable');
       if (who === roundPool('over', c)) return units(w.overPool[c], 18);
       if (who === defaultPool('over', c)) return units(10_000, 18);
       if (held('over') != null) return units(held('over'), 18);
