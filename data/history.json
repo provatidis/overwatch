@@ -109,5 +109,45 @@
    "rate": "good",
    "houseOver": "pending"
   }
+ },
+ {
+  "date": "2026-11-24",
+  "price": 0.174775,
+  "mcap": 9426285.444297682,
+  "treasuryStable": 2451889,
+  "def": 4,
+  "poolUsdc": 480501,
+  "bettingUsdc": 820105,
+  "bettingOver": 1693003,
+  "circulating": 53133062,
+  "burned": 16286938,
+  "treasuryOver": 15434317,
+  "poolOver": 797793,
+  "adminOver": 2119616,
+  "houseOver": 19665420,
+  "walletStable": 2381434,
+  "gamesUsdc": 121529,
+  "gamesOver": 418484,
+  "eth": [
+   267.132,
+   212.558,
+   32.078
+  ],
+  "btc": [
+   0.3366,
+   1.7531,
+   0.0323
+  ],
+  "ethPrice": 1692.62,
+  "btcPrice": 60378,
+  "liquidityUsd": 624053,
+  "volume24h": 9616,
+  "checks": {
+   "bankroll": "good",
+   "trend": "pending",
+   "cover": "good",
+   "rate": "good",
+   "houseOver": "watch"
+  }
  }
 ]
