@@ -167,12 +167,6 @@ h2 { font-size:30px; font-weight:400; letter-spacing:-.04em; line-height:1.16; m
 .check-why { margin:6px 0 0; font-size:14px; line-height:1.5; }
 .check-text { margin:6px 0 0; font-size:13.5px; line-height:1.5; color:var(--muted); }
 
-.check-evidence { margin:10px 0 0; font-size:13.5px; line-height:1.5; font-weight:500; }
-.check-receipts { margin:4px 0 0; padding-left:18px; font-size:13px; line-height:1.5; }
-.check-receipts li + li { margin-top:4px; }
-.check-receipts a { text-underline-offset:2px; }
-.verdict-detail { display:block; color:var(--muted); font-size:12px; line-height:1.4; }
-
 /* Controls */
 .controls { display:flex; flex-wrap:wrap; gap:14px 28px; align-items:center; padding-top:36px; }
 .control { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--muted); }

@@ -38,6 +38,7 @@ export function makeWorld(over = {}) {
     now: T0,
     revenuePerDay: 6000,
     buyback: t => 2300,              // daily buyback for the day starting at t
+    autoBuy: true,                   // each full day's buyback lands in the Optimism buyback contract, at $0.18
     treasuryStable: 2_450_000,
     poolUsdc: { optimism: 173_000, arbitrum: 186_000, base: 144_000 },
     overPool: { optimism: 233_000, arbitrum: 217_000, base: 295_000 },
@@ -190,6 +191,11 @@ export function makeWorld(over = {}) {
     if (to === lc(OVER.tokens[c])) {
       if (data === '0x18160ddd') return units(w.supply[c], 18);
       if (who === OVER.buybackContracts[c] && w.fail.has('buyback-inventory-' + c)) throw new Error('inventory balance unavailable');
+      if (c === 'optimism' && who === OVER.buybackContracts.optimism && w.autoBuy) {
+        let bought = 0;
+        for (let d = Math.floor(T0 / DAY) * DAY; d < Math.floor(w.now / DAY) * DAY; d += DAY) bought += w.buyback(d) / 0.18;
+        return units(((w.wallets[c] || {})[who] || 0) + bought, 18);
+      }
       if (who === roundPool('over', c)) return units(w.overPool[c], 18);
       if (who === defaultPool('over', c)) return units(10_000, 18);
       if (held('over') != null) return units(held('over'), 18);

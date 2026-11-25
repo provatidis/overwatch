@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DAY, completeDays, aggregate, parseTreasury, computeStats, computeChecks, computeFlows,
-  readingsFromHistory, overReadingsFromHistory, houseOverContext, voterGroup, FIRST_COMPARABLE
+  readingsFromHistory, overReadingsFromHistory, voterGroup, FIRST_COMPARABLE
 } from '../lib/metrics.js';
 import { METHOD_CHANGE } from '../lib/config.js';
 import { times } from '../lib/format.js';
@@ -121,31 +121,53 @@ test('buyback rate: cut, pause and raise', () => {
   assert.match(raised.text, /step up/);
 });
 
-test('house OVER: pending on day one, alert on an outflow, quiet on a move into the pools', () => {
-  const h = (date, wallets, pools, admin = 2_000_000, games = 400_000) => ({ date, def: 4, treasuryOver: wallets, adminOver: admin, bettingOver: pools, gamesOver: games, houseOver: wallets + admin + pools + games });
-  const one = computeChecks(computeStats({ overReadings: overReadingsFromHistory([h('2026-11-20', 15_000_000, 700_000)]) }));
-  assert.equal(check(one, 'houseOver').state, 'pending');
-  assert.match(check(one, 'houseOver').text, /2\.00M in Overtime’s admin multisigs/);
-  assert.match(check(one, 'houseOver').text, /400K in the casino and Speed Markets/);
+test('house OVER: graded on OVER reaching the market, not burns or buyback-contract moves', () => {
+  const h = (date, o = {}) => {
+    const r = { date, def: 4, treasuryOver: 15_000_000, adminOver: 2_000_000, bettingOver: 700_000, gamesOver: 400_000, buybackInventory: 500_000, burned: 15_000_000, price: 0.2, ...o };
+    r.houseOver = r.treasuryOver + r.adminOver + r.bettingOver + r.gamesOver;
+    return r;
+  };
+  const buy = series(day(2026, 11, 1), day(2026, 11, 20), 2000);   // $2,000 a day: 10,000 OVER at $0.20
+  const grade = (next, b = buy) => check(computeChecks(computeStats({ buy: b, overReadings: overReadingsFromHistory([h('2026-11-20'), h('2026-11-21', next)]) })), 'houseOver');
 
-  const out = computeChecks(computeStats({ overReadings: overReadingsFromHistory([h('2026-11-20', 15_000_000, 700_000), h('2026-11-21', 13_500_000, 700_000)]) }));
-  assert.equal(check(out, 'houseOver').state, 'alert');
+  const one = check(computeChecks(computeStats({ buy, overReadings: overReadingsFromHistory([h('2026-11-20')]) })), 'houseOver');
+  assert.equal(one.state, 'pending');
+  assert.match(one.text, /2\.00M in Overtime’s admin multisigs/);
 
-  const moved = computeChecks(computeStats({ overReadings: overReadingsFromHistory([h('2026-11-20', 15_000_000, 700_000), h('2026-11-21', 14_000_000, 1_700_000)]) }));
-  assert.equal(check(moved, 'houseOver').state, 'good');
+  // A day of buybacks lands in the buyback contract: nothing reached the market.
+  const quiet = grade({ buybackInventory: 510_000 });
+  assert.equal(quiet.state, 'good');
+  assert.equal(quiet.value, 0);
+  assert.match(quiet.text, /No OVER left the house for the market over 1 day\./);
+  assert.match(quiet.text, /nets off the 10\.0K OVER the buybacks bought/);
 
-  // OVER leaving an admin multisig, or the casino, is OVER leaving the house.
-  const adminOut = computeChecks(computeStats({ overReadings: overReadingsFromHistory([h('2026-11-20', 15_000_000, 700_000), h('2026-11-21', 15_000_000, 700_000, 500_000)]) }));
-  assert.equal(check(adminOut, 'houseOver').state, 'alert');
-  assert.match(check(adminOut, 'houseOver').text, /admin multisigs −1\.50M/);
-  const gamesOut = computeChecks(computeStats({ overReadings: overReadingsFromHistory([h('2026-11-20', 15_000_000, 700_000), h('2026-11-21', 15_000_000, 700_000, 2_000_000, 0)]) }));
-  assert.equal(check(gamesOut, 'houseOver').state, 'alert');
-  assert.match(check(gamesOut, 'houseOver').text, /casino and Speed Markets −400K/);
+  // The buyback contract hands 500K to the treasury and the treasury burns 800K: still nothing.
+  const burn = grade({ treasuryOver: 14_700_000, buybackInventory: 10_000, burned: 15_800_000 });
+  assert.equal(burn.state, 'good');
+  assert.equal(burn.value, 0);
+  assert.match(burn.text, /leaves out the 800K OVER burned/);
+  assert.match(burn.text, /treasury wallets −300K/);
 
-  // Readings made before the admin multisigs or the casino were counted are left out, not compared.
-  const old2 = { date: '2026-11-18', def: 2, treasuryOver: 15_000_000, bettingOver: 700_000, houseOver: 15_700_000 };
-  const old3 = { date: '2026-11-19', def: 3, treasuryOver: 15_000_000, adminOver: 2_000_000, bettingOver: 700_000, houseOver: 17_700_000 };
-  assert.equal(overReadingsFromHistory([old2, old3, h('2026-11-21', 15_000_000, 700_000)]).length, 1);
+  // Selling 1.5M from the treasury is OVER reaching the market.
+  const sold = grade({ treasuryOver: 13_500_000, buybackInventory: 510_000 });
+  assert.equal(sold.state, 'alert');
+  assert.match(sold.text, /About 1\.50M OVER left the house for the market over 1 day: −8\.3% of the 18\.1M it held\./);
+  assert.match(sold.short, /^House OVER −8\.3% to the market in 1 day$/);
+
+  // So is OVER leaving an admin multisig or the casino; moving OVER into the pools isn't.
+  assert.equal(grade({ adminOver: 500_000, buybackInventory: 510_000 }).state, 'alert');
+  const gamesOut = grade({ gamesOver: 0, buybackInventory: 510_000 });
+  assert.equal(gamesOut.state, 'alert');
+  assert.match(gamesOut.text, /casino and Speed Markets −400K/);
+  assert.equal(grade({ treasuryOver: 14_000_000, bettingOver: 1_700_000, buybackInventory: 510_000 }).state, 'good');
+
+  // Without the buyback figures for those days, bought-back OVER can't be told apart: no grade.
+  assert.equal(grade({ buybackInventory: 510_000 }, series(day(2026, 11, 1), day(2026, 11, 18), 2000)).state, 'unknown');
+
+  // Readings from before the buyback contracts were read are left out rather than compared.
+  const old3 = { date: '2026-11-19', def: 3, treasuryOver: 15_000_000, adminOver: 2_000_000, bettingOver: 700_000, houseOver: 17_700_000, burned: 15_000_000 };
+  const noInventory = { ...h('2026-11-19'), buybackInventory: undefined };
+  assert.equal(overReadingsFromHistory([old3, noInventory, h('2026-11-21')]).length, 1);
 });
 
 // A day of the house's money, as the job writes it: coins in [treasury wallets, pools, casino].
@@ -212,35 +234,4 @@ test('money reconciliation: other flows are what the result minus buybacks does 
 test('voter groups: TC-NFT is the council, OVER is holders', () => {
   assert.equal(voterGroup({ symbol: 'TC-NFT', strategies: ['erc20-balance-of'] }).council, true);
   assert.equal(voterGroup({ symbol: 'OVER', strategies: ['erc20-balance-of'] }).council, false);
-});
-
-test('verified transfers are confined to the observed comparison and published receipt times', () => {
-  const rows = [23, 24, 25].map(d => ({ date: `2026-11-${d}`, def: 4, houseOver: 100 }));
-  const sec = time => Date.parse(`2026-11-24T${time}Z`) / 1000;
-  const receipts = t => houseOverContext(rows, t, day(2026, 11, 23)).transfers;
-  assert.equal(receipts(sec('13:45:22')).length, 0);
-  assert.match(receipts(sec('13:45:23'))[0].label, /800,000 OVER/);
-  assert.deepEqual(receipts(sec('13:46:34')), receipts(sec('13:45:23')));
-  const both = receipts(sec('13:46:35'));
-  assert.equal(both.length, 2);
-  assert.match(both[1].label, /580,000 OVER/);
-  assert.ok(both.every(r => /^https:\/\/[^/]+\/tx\/0x[a-f0-9]{64}$/.test(r.href)));
-  assert.deepEqual(receipts(day(2026, 11, 25)), both);
-  assert.equal(houseOverContext(rows, day(2026, 11, 25), day(2026, 11, 24)).transfers.length, 0);
-  assert.equal(houseOverContext(rows.slice(0, 1), sec('17:00:00')).transfers.length, 0);
-});
-
-test('float change needs two adjacent days with comparable inventory coverage', () => {
-  const first = { date: '2026-11-23', def: 4, houseOver: 19_923_412, float: 33_440_133, buybackInventory: 569_517 };
-  const last = { date: '2026-11-24', def: 4, houseOver: 19_665_420, float: 33_464_578, buybackInventory: 3_064 };
-  const read = (baseline, current = last) => houseOverContext([baseline, current], day(2026, 11, 24) + 16 * 3600).floatDay;
-  assert.equal(read(first).change, 24_445);
-  assert.equal(read(first).ratio, 24_445 / first.float);
-  assert.match(read(first).text, /\+24,445 OVER \(\+0\.07%\)/);
-  for (const bad of [{ date: '2026-11-22' }, { def: 3 }, { float: undefined }, { houseOver: null }, { buybackInventory: null }]) {
-    assert.equal(read({ ...first, ...bad }), null);
-  }
-  assert.equal(read(first, { ...last, buybackInventory: null }), null);
-  assert.equal(read({ ...first, float: 0 }).ratio, null);
-  assert.equal(read(first, { ...last, float: first.float, buybackInventory: 0 }).change, 0);
 });

@@ -9,7 +9,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { OVER, HOUSE, DEAD, LOCKED_NAME, HOLDER_VALUE, THRESHOLDS, CHAIN_NAMES } from '../lib/config.js';
-import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, houseOverContext, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
+import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
 import { money, tokens, fmtDate, ok } from '../lib/format.js';
 import { MULTICALL3, encodeAggregate3, decodeAggregate3 } from '../lib/multicall.js';
 
@@ -572,11 +572,14 @@ async function sendAlerts(prev, next) {
   const marker = id => `<!-- overwatch:${id} -->`;
 
   for (const c of next.checks) {
-    // Only compare graded, fresh checks against a graded, fresh previous reading.
+    // Only compare fresh, graded checks against a fresh previous reading. A check that wasn't
+    // comparable yet (or had no data) counts as Healthy before, so one that starts out at Watch or
+    // Alert still opens an issue.
     const before = (prev.checks || []).find(x => x.id === c.id);
     if (!before || c.stale || before.stale) continue;
-    if (RANK[c.state] < 0 || RANK[before.state] == null || RANK[before.state] < 0 || before.state === c.state) continue;
-    if (RANK[c.state] > RANK[before.state]) {
+    if (RANK[c.state] < 0 || before.state === c.state) continue;
+    const was = Math.max(0, RANK[before.state] ?? 0);
+    if (RANK[c.state] > was) {
       const title = `${c.title}: ${GRADE[before.state][1]} → ${GRADE[c.state][1]}`;
       const detail = next.alertDetail && next.alertDetail[c.id] ? `\n\n${next.alertDetail[c.id]}` : '';
       await gh('/issues', 'POST', { title: `[OVER watch] ${title}`, body: `${c.text}${detail}\n\n[Open OVER watch](${PAGE_URL})\n\n${marker('check:' + c.id)}` });
@@ -791,14 +794,7 @@ async function main(now, OUT) {
   const checks = computeChecks(stats).map(c => ({ ...c, stale: c.sources.some(n => !sources[n] || !sources[n].ok) }));
   row.checks = Object.fromEntries(checks.map(c => [c.id, c.stale ? `${c.state} (stale)` : c.state]));
   const flows = computeFlows(readings, rev, buy);
-  const detail = [];
-  if (fresh('supply')) {
-    const moves = walletMoves(prev?.supply, supply, prev?.admin, fresh('admin') ? admin : null);
-    if (moves.length) detail.push(`House wallets that moved since the last reading:\n- ${moves.join('\n- ')}`);
-    const context = houseOverContext(history, now, stats.overBase?.t);
-    for (const { label, href } of context.transfers) detail.push(`[${label}](${href})`);
-    if (ok(supply.float) && context.floatDay) detail.push(context.floatDay.text);
-  }
+  const moves = fresh('supply') ? walletMoves(prev?.supply, supply, prev?.admin, fresh('admin') ? admin : null) : [];
 
   const next = {
     generatedAt: now,
@@ -822,7 +818,7 @@ async function main(now, OUT) {
     majors,
     checks,
     errors: ctx.errors,
-    alertDetail: { houseOver: detail.join('\n\n') || null }
+    alertDetail: { houseOver: moves.length ? `House wallets that moved since the last reading:\n- ${moves.join('\n- ')}` : null }
   };
 
   await writeFile(path.join(OUT, 'latest.json'), JSON.stringify(next));

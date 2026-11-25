@@ -319,7 +319,7 @@ test('a failed read of the house’s money is carried over, not counted as zero'
 });
 
 test('a buyback reduces float once, even when its tokens later reach treasury and are burned', async () => {
-  const w = makeWorld(), dir = await tempDir();
+  const w = makeWorld({ autoBuy: false }), dir = await tempDir();
   const { optimism, base } = OVER.buybackContracts;
   w.wallets.optimism[optimism] = 570_000;
   w.wallets.base[base] = 1_000;
@@ -345,8 +345,8 @@ test('a buyback reduces float once, even when its tokens later reach treasury an
   assert.equal(burned.history.at(-1).float, Math.round(burned.next.supply.float));
 });
 
-test('an incomplete inventory read withholds adjusted float while House OVER keeps its own grade', async () => {
-  const w = makeWorld(), dir = await tempDir();
+test('an incomplete inventory read withholds adjusted float and House OVER’s grade', async () => {
+  const w = makeWorld({ autoBuy: false }), dir = await tempDir();
   w.wallets.optimism[OVER.buybackContracts.optimism] = 573_000;
   const first = await runDay(w, dir, 0);
   w.fail.add('buyback-inventory-base');
@@ -357,7 +357,8 @@ test('an incomplete inventory read withholds adjusted float while House OVER kee
   assert.equal(failed.next.supply.floatUsd, null);
   assert.equal(failed.history.at(-1).float, null);
   assert.equal(failed.history.at(-1).buybackInventory, null);
-  assert.equal(check(failed, 'houseOver').stale, false);
+  // Without the buyback contracts' OVER, a burn or a handover can't be told from a sale: no alerts.
+  assert.equal(check(failed, 'houseOver').stale, true);
 
   w.fail.clear();
   w.wallets.optimism[OVER.buybackContracts.optimism] = 0;
@@ -365,4 +366,31 @@ test('an incomplete inventory read withholds adjusted float while House OVER kee
   assert.equal(recovered.next.sources.buybackInventory.ok, true);
   assert.equal(recovered.history.at(-1).buybackInventory, 0);
   assert.equal(recovered.next.supply.float, recovered.next.supply.circulating - recovered.next.supply.house);
+});
+
+test('a treasury burn and a handover from the buyback contract aren’t OVER leaving the house', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  const safebox = OVER.buybackContracts.optimism;
+  w.wallets.optimism[safebox] = 600_000;
+  await runDay(w, dir, 0);
+  w.wallets.optimism[safebox] -= 580_000;
+  w.wallets.optimism[ADDR.TRE] += 580_000;
+  w.wallets.ethereum[ADDR.SAFE] -= 800_000;
+  w.dead += 800_000;
+  const r = await runDay(w, dir, 1);
+  const c = check(r, 'houseOver');
+  assert.equal(c.state, 'good');
+  assert.ok(Math.abs(c.value) < 1e-6);
+  assert.match(c.text, /No OVER left the house for the market over 1 day\./);
+  assert.match(c.text, /leaves out the 800K OVER burned/);
+  assert.equal(w.issues.length, 0);
+});
+
+test('a check that starts out at Watch or Alert opens an issue', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  await runDay(w, dir, 0);   // House OVER: not comparable yet
+  w.wallets.ethereum[ADDR.SAFE] -= 1_500_000;
+  const r = await runDay(w, dir, 1);
+  assert.equal(check(r, 'houseOver').state, 'alert');
+  assert.deepEqual(titles(w), ['[OVER watch] House OVER: Not comparable yet → Alert']);
 });
