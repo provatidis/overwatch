@@ -16,7 +16,7 @@
         document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#0e1511' : '#f2f3ec';
       })();
       // Start fetching the daily snapshot while the page's code is still loading.
-      window.owData = ['latest', 'history'].map(name => fetch(`./data/${name}.json`, { cache: 'no-cache' })
+      window.owData = ['latest', 'browser-history'].map(name => fetch(`./data/${name}.json`, { cache: 'no-cache' })
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }));
       window.owData.forEach(p => p.catch(() => {}));
     </script>

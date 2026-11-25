@@ -1,5 +1,5 @@
 // Daily snapshot for OVER watch. Runs in GitHub Actions on Node 20+ with no dependencies.
-// Writes data/latest.json and data/history.json, then opens or closes GitHub issues
+// Writes the snapshot, its full history and the browser's compact history, then opens or closes GitHub issues
 // when a thesis check changes state or a new governance vote appears.
 //
 // Env: GITHUB_TOKEN + GITHUB_REPOSITORY to send alerts, OUT_DIR to write somewhere else,
@@ -11,6 +11,7 @@ import path from 'node:path';
 import { OVER, HOUSE, DEAD, LOCKED_NAME, HOLDER_VALUE, THRESHOLDS, CHAIN_NAMES } from '../lib/config.js';
 import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
 import { money, tokens, fmtDate, ok } from '../lib/format.js';
+import { browserHistory } from '../lib/browser-history.js';
 import { houseEvidenceMarkdown } from '../lib/house-evidence.js';
 import { MULTICALL3, encodeAggregate3, decodeAggregate3 } from '../lib/multicall.js';
 
@@ -950,6 +951,7 @@ async function main(now, OUT) {
 
   await writeFile(path.join(OUT, 'latest.json'), JSON.stringify(next));
   await writeFile(path.join(OUT, 'history.json'), JSON.stringify(history, null, 1));
+  await writeFile(path.join(OUT, 'browser-history.json'), JSON.stringify(browserHistory(history)));
   if (treJ) {
     const last = Object.fromEntries(Object.entries(treJ.chainTvls || {}).map(([k, v]) => [k, {
       tvl: Array.isArray(v.tvl) && v.tvl.length ? v.tvl[v.tvl.length - 1] : null,

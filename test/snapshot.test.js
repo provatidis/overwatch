@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { browserHistory } from '../lib/browser-history.js';
 import { OVER } from '../lib/config.js';
 import { makeWorld, runDay, tempDir, DAY, T0, ADDR } from './fake-world.js';
 
@@ -416,6 +417,10 @@ test('a chain log outage withholds the grade and the next run catches up exactly
   assert.equal(check(recovered, 'houseOver').state, 'good');
   const repeat = await runDay(w, dir, 2);
   assert.deepEqual(repeat.history.at(-1).houseTransfers, checkpoint);
+  const archived = JSON.parse(await readFile(path.join(dir, 'history.json'), 'utf8'));
+  const published = JSON.parse(await readFile(path.join(dir, 'browser-history.json'), 'utf8'));
+  assert.deepEqual(archived.at(-1).houseTransfers, checkpoint);
+  assert.deepEqual(published, browserHistory(archived));
 });
 
 test('an unrelated burn cannot cancel a distribution from house wallets', async () => {

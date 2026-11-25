@@ -392,7 +392,7 @@ function verdict(parent, checks) {
     const text = el('span', 'verdict-text', null, a);
     el('span', 'sr-only', GRADE[c.state][1] + ': ', text);
     text.append(c.short || c.title);
-    if (c.staleSince) el('span', 'verdict-stale', c.id === 'houseOver' ? ' (incomplete)' : ' (earlier data)', text);
+    if (c.staleSince && c.id !== 'houseOver') el('span', 'verdict-stale', ' (earlier data)', text);
   });
 }
 
@@ -872,7 +872,7 @@ async function load() {
   const early = window.owData || [];
   const [snap, hist] = await Promise.allSettled([
     early[0] ? withTimeout(early[0], 20000) : getJSON('./data/latest.json', 20000, { cache: 'no-cache' }),
-    early[1] ? withTimeout(early[1], 20000) : getJSON('./data/history.json', 20000, { cache: 'no-cache' })
+    early[1] ? withTimeout(early[1], 20000) : getJSON('./data/browser-history.json', 20000, { cache: 'no-cache' })
   ]);
   const notes = [];
   if (snap.status === 'fulfilled') {

@@ -143,7 +143,9 @@ const houseGrade = (...rows) => check(computeChecks(houseStats(...rows)), 'house
 
 test('house outflow uses executed purchases and house-funded burns independently of prices and dollar series', () => {
   const base = houseRow('2026-11-20');
-  assert.equal(houseGrade(base).state, 'pending');
+  const pending = houseGrade(base);
+  assert.equal(pending.state, 'pending');
+  assert.equal(pending.short, pending.title + ' · pending');
   const next = houseRow('2026-11-21', { treasuryOver: 14_700_000, buybackInventory: 10_000, burned: 99_000_000 });
   const buy = transfer('purchase', 10_000), burn = transfer('burn', 800_000, 'ethereum');
   const handover = { ...transfer('internal', 500_000, 'optimism', 1), from: OVER.buybackContracts.optimism, to: OVER.treasury[0] };
@@ -151,7 +153,8 @@ test('house outflow uses executed purchases and house-funded burns independently
   const flat = houseGrade(base, next);
   assert.equal(flat.state, 'good');
   assert.equal(flat.value, 0);
-  assert.match(flat.short, /flat/);
+  assert.equal(flat.short, flat.title + ' · 0 OVER');
+  assert.match(flat.text, /Estimated net house outflow was 0 OVER/);
   const evidence = houseStats(base, next).overEvidence;
   assert.equal(evidence.movements.length, 2);
   assert.equal(evidence.purchases.length, 1);
@@ -174,7 +177,9 @@ test('house transfer coverage must match the balances and receipts at both ends'
   for (const patch of [{ boughtRaw: null }, { boughtRaw: raw(20_000) }, { blocks: {} }, { startDate: '2026-11-19' }]) {
     const changed = structuredClone(next);
     Object.assign(changed.houseTransfers, patch);
-    assert.equal(houseGrade(base, changed).state, 'unknown');
+    const missing = houseGrade(base, changed);
+    assert.equal(missing.state, 'unknown');
+    assert.equal(missing.short, missing.title + ' · no data');
   }
   for (const missing of [{houseTransfers: null}, {buybackInventory: null}]) {
     assert.equal(houseGrade({...base, ...missing}, next).state, 'unknown');
@@ -194,8 +199,8 @@ test('dated float evidence distinguishes daily and check windows and keeps uncla
   last.houseTransfers.events = [transfer('external', 350, 'base', 1, 2140), transfer('receipt', 7, 'base', 2, 2140)];
   const e = houseStats(base, prev, last).overEvidence;
   assert.equal(e.float.length, 2);
-  assert.match(e.float[0], /21 Nov 2026 to 22 Nov 2026.*−6,659 OVER/);
-  assert.match(e.float[1], /20 Nov 2026 to 22 Nov 2026.*\+11,436 OVER/);
+  assert.match(e.float[0], /^Estimated free float since the previous reading, 21 Nov 2026 to 22 Nov 2026.*−6,659 OVER/);
+  assert.match(e.float[1], /^Estimated free float over this check, 20 Nov 2026 to 22 Nov 2026.*\+11,436 OVER/);
   assert.match(e.summary, /0 verified purchases/);
   assert.match(e.movements[0].text, /untracked address/);
   assert.match(e.movements[1].text, /Other SafeBox receipt/);

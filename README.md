@@ -18,7 +18,7 @@ A GitHub Action (`.github/workflows/snapshot.yml`) runs `scripts/snapshot.mjs` o
 - **Governance** from the `thalesgov.eth` space on Snapshot.
 - **Price and market cap** from CoinGecko.
 
-It writes `data/latest.json` and adds a row to `data/history.json`, then commits both. The page reads those files and fetches a live price on load. If the snapshot is missing, it falls back to DefiLlama for the core charts.
+Each run updates `data/latest.json` and the full archive in `data/history.json`. It also writes `data/browser-history.json`, which carries the historical chart figures and the evidence for the current comparison. The page loads the latest snapshot and this compact history, then fetches a live price. If the snapshot is missing, it falls back to DefiLlama for the core charts.
 
 ### House transfer evidence
 
@@ -26,7 +26,7 @@ The collector pins balances to a finalized block on each of the four chains and 
 
 Replay the original three published checkpoints against historical chain state with `node scripts/verify-house-history.mjs 2026-11-23 2026-11-25`. The histories retain raw SafeBox balances, cumulative purchase and house burn amounts, and the receipts for each interval.
 
-Both the check and GitHub alerts link the treasury, admin and SafeBox wallet movements and buyback receipts. They show adjusted free-float changes since the prior reading and across the grade’s window. The pool and games breakdown explains the operating balances outside that wallet list. An incomplete scan withholds the grade. The next successful run scans from the last complete checkpoint. A change to the tracked custody wallets starts a new comparison series.
+Both the check and GitHub alerts link the treasury, admin and SafeBox wallet movements and buyback receipts. They show estimated free-float changes since the prior reading and across the grade’s window. The pool and games breakdown explains the operating balances outside that wallet list. An incomplete scan withholds the grade. The next successful run scans from the last complete checkpoint. A change to the tracked custody wallets starts a new comparison series.
 
 ### How the numbers are kept honest
 
