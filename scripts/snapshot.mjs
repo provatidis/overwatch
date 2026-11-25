@@ -21,8 +21,8 @@ const UA = 'overwatch-snapshot (+https://github.com/provatidis/overwatch)';
 let ctx = { fetch: (...a) => globalThis.fetch(...a), env: process.env, errors: [], retryDelay: 1500, log: console.log, logError: console.error };
 
 const RPCS = {
-  ethereum: ['https://ethereum-rpc.publicnode.com', 'https://eth.llamarpc.com', 'https://cloudflare-eth.com'],
-  optimism: ['https://optimism-rpc.publicnode.com', 'https://mainnet.optimism.io'],
+  ethereum: ['https://ethereum-rpc.publicnode.com', 'https://gateway.tenderly.co/public/mainnet', 'https://eth.api.pocket.network', 'https://eth.llamarpc.com'],
+  optimism: ['https://optimism-rpc.publicnode.com', 'https://mainnet.optimism.io', 'https://gateway.tenderly.co/public/optimism'],
   arbitrum: ['https://gateway.tenderly.co/public/arbitrum', 'https://arb1.arbitrum.io/rpc', 'https://arbitrum-one.public.blastapi.io', 'https://arbitrum-one-rpc.publicnode.com'],
   base:     ['https://base-rpc.publicnode.com', 'https://base.api.pocket.network', 'https://mainnet.base.org']
 };
@@ -87,7 +87,7 @@ async function rpcRaw(chain, method, params) {
   if (ctx.rpc) return ctx.rpc(chain, method, params);
   let last, rangeError;
   const urls = method === 'eth_getLogs' ? [...(LOG_PROVIDERS[chain] || []), ...RPCS[chain]] : RPCS[chain];
-  for (const url of urls) {
+  for (const url of new Set(urls)) {
     try {
       const j = await getJSON(url, {
         method: 'POST',
