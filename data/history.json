@@ -534,12 +534,12 @@
  },
  {
   "date": "2026-11-25",
-  "price": 0.175022,
-  "mcap": 9299303.24058378,
+  "price": 0.175106,
+  "mcap": 9303913.815795386,
   "treasuryStable": 2451766,
   "def": 4,
-  "poolUsdc": 490783,
-  "bettingUsdc": 843706,
+  "poolUsdc": 490779,
+  "bettingUsdc": 843621,
   "bettingOver": 1684305,
   "circulating": 53133062,
   "burned": 16286938,
@@ -550,7 +550,7 @@
   "adminOver": 2119616,
   "houseOver": 19666038,
   "walletStable": 2381434,
-  "gamesUsdc": 123108,
+  "gamesUsdc": 123111,
   "gamesOver": 427800,
   "eth": [
    267.132,
@@ -562,10 +562,10 @@
    1.7604,
    0.0323
   ],
-  "ethPrice": 1634.68,
-  "btcPrice": 58239,
+  "ethPrice": 1638.7,
+  "btcPrice": 58371,
   "liquidityUsd": 622931,
-  "volume24h": 9555,
+  "volume24h": 9121,
   "checks": {
    "bankroll": "good",
    "trend": "pending",
@@ -576,28 +576,28 @@
   "houseTransfers": {
    "blocks": {
     "ethereum": {
-     "number": 26492662,
-     "hash": "0x71c9b3a7944404726138975a17d6512d4936f122ab687a2fc1845d6ffdbe444b",
-     "timestamp": 1795615319
+     "number": 26492694,
+     "hash": "0x766cc63496c9373d6ef6e92c9ba969f6f1d879a1ac1074470d0b58805d76b86e",
+     "timestamp": 1795615703
     },
     "optimism": {
-     "number": 160007974,
-     "hash": "0x6fe1b87df7644d7b03baf0902637dd5dede0497357630119641436f8505b1f8b",
-     "timestamp": 1795614725
+     "number": 160008260,
+     "hash": "0x7d7fe332d440268b4bcc1bf98cb2bdde5e7e7244f73abfe2a88a9e69a6f26520",
+     "timestamp": 1795615297
     },
     "arbitrum": {
-     "number": 527441748,
-     "hash": "0x03152e1e52ef4e5923e21cebf0206a20cb5760b076a844b195fecb261dfe3c5f",
-     "timestamp": 1795615255
+     "number": 527443229,
+     "hash": "0xf10840a77a780a615b38b9208c6c5ae882d58d04cc49b094f26e863711712c3b",
+     "timestamp": 1795615634
     },
     "base": {
-     "number": 62122688,
-     "hash": "0x927167bfd1d7928618ff2f5df70517573a3045085cddd0effb9f06eed5ec5acb",
-     "timestamp": 1795614913
+     "number": 62124653,
+     "hash": "0x917cb953c6bd34872176d00d88d681651c8a7e45bb31075940c1ebae173a8ada",
+     "timestamp": 1795615306
     }
    },
    "startDate": "2026-11-23",
-   "asOf": 1795616228,
+   "asOf": 1795616535,
    "ownersByChain": {
     "ethereum": [
      "0x1777c6d588fd931751762836811529c0073d6376",
