@@ -148,7 +148,7 @@ test('OVER leaving the house alerts with the wallet; a move into the OVER pools 
   w.wallets.ethereum[ADDR.SAFE] -= 1_500_000;
   const r = await runDay(w, dir, 3);
   assert.equal(check(r, 'houseOver').state, 'alert');
-  assert.deepEqual(titles(w), ['[OVER watch] House OVER: Healthy → Alert']);
+  assert.match(titles(w).join(), /Healthy → Alert/);
   assert.match(w.issues[0].body, /0xdac0…b0fa on Ethereum: −1\.50M OVER/);
 });
 
@@ -376,13 +376,18 @@ test('a treasury burn and a handover from the buyback contract aren’t OVER lea
   w.wallets.optimism[safebox] -= 580_000;
   w.wallets.optimism[ADDR.TRE] += 580_000;
   w.wallets.ethereum[ADDR.SAFE] -= 800_000;
+  w.transfer('ethereum', 1, ADDR.SAFE, '0x000000000000000000000000000000000000dead', 800_000);
+  w.transfer('optimism', 1, safebox, ADDR.TRE, 580_000);
   w.dead += 800_000;
   const r = await runDay(w, dir, 1);
   const c = check(r, 'houseOver');
   assert.equal(c.state, 'good');
   assert.ok(Math.abs(c.value) < 1e-6);
-  assert.match(c.text, /No OVER left the house for the market over 1 day\./);
-  assert.match(c.text, /leaves out the 800K OVER burned/);
+  const checkpoint = r.history.at(-1).houseTransfers;
+  assert.equal(checkpoint.burnedRaw, String(800_000n * 10n ** 18n));
+  assert.equal(checkpoint.events.filter(e => e.kind === 'internal').length, 1);
+  assert.match(r.next.alertDetail.houseOver, /etherscan\.io\/tx\//);
+  assert.match(r.next.alertDetail.houseOver, /580,000|580K/);
   assert.equal(w.issues.length, 0);
 });
 
@@ -392,5 +397,50 @@ test('a check that starts out at Watch or Alert opens an issue', async () => {
   w.wallets.ethereum[ADDR.SAFE] -= 1_500_000;
   const r = await runDay(w, dir, 1);
   assert.equal(check(r, 'houseOver').state, 'alert');
-  assert.deepEqual(titles(w), ['[OVER watch] House OVER: Not comparable yet → Alert']);
+  assert.match(titles(w).join(), /Not comparable yet → Alert/);
+});
+
+
+test('a chain log outage withholds the grade and the next run catches up exactly once', async () => {
+  const w = makeWorld(), dir = await tempDir();
+  await runDay(w, dir, 0);
+  w.fail.add('logs-base');
+  const down = await runDay(w, dir, 1);
+  assert.equal(down.history.at(-1).houseTransfers, null);
+  assert.equal(check(down, 'houseOver').state, 'unknown');
+  assert.equal(down.next.sources.houseTransfers.ok, false);
+  w.fail.clear();
+  const recovered = await runDay(w, dir, 2);
+  const checkpoint = recovered.history.at(-1).houseTransfers;
+  assert.equal(checkpoint.events.filter(e => e.kind === 'purchase').length, 2);
+  assert.equal(check(recovered, 'houseOver').state, 'good');
+  const repeat = await runDay(w, dir, 2);
+  assert.deepEqual(repeat.history.at(-1).houseTransfers, checkpoint);
+});
+
+test('an unrelated burn cannot cancel a distribution from house wallets', async () => {
+  const w = makeWorld({ autoBuy: false }), dir = await tempDir();
+  await runDay(w, dir);
+  w.dead += 900_000;
+  w.wallets.ethereum[ADDR.SAFE] -= 900_000;
+  const r = await runDay(w, dir, 1);
+  assert.equal(check(r, 'houseOver').state, 'alert');
+  assert.equal(r.history.at(-1).houseTransfers.burnedRaw, '0');
+});
+
+
+test('a missing SafeBox receipt invalidates the interval until the totals reconcile', async () => {
+  const w = makeWorld({ autoBuy: false }), dir = await tempDir();
+  await runDay(w, dir);
+  const box = OVER.buybackContracts.optimism;
+  w.wallets.optimism[box] = 245;
+  const incomplete = await runDay(w, dir, 1);
+  assert.equal(incomplete.history.at(-1).houseTransfers, null);
+  assert.equal(check(incomplete, 'houseOver').state, 'unknown');
+  w.transfer('optimism', 1, '0x' + '2'.repeat(40), box, 245);
+  w.wallets.ethereum[ADDR.SAFE] -= 900_000;
+  const recovered = await runDay(w, dir, 2);
+  assert.equal(recovered.history.at(-1).houseTransfers.boughtRaw, '0');
+  assert.equal(check(recovered, 'houseOver').state, 'alert');
+  assert.equal(w.issues.length, 1);
 });

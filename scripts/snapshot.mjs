@@ -11,6 +11,7 @@ import path from 'node:path';
 import { OVER, HOUSE, DEAD, LOCKED_NAME, HOLDER_VALUE, THRESHOLDS, CHAIN_NAMES } from '../lib/config.js';
 import { dailySeries, parseTreasury, treasuryToRows, readingsFromHistory, overReadingsFromHistory, completeDays, computeStats, computeChecks, computeFlows, voterGroup, GRADE, RANK, DAY } from '../lib/metrics.js';
 import { money, tokens, fmtDate, ok } from '../lib/format.js';
+import { houseEvidenceMarkdown } from '../lib/house-evidence.js';
 import { MULTICALL3, encodeAggregate3, decodeAggregate3 } from '../lib/multicall.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,8 +23,12 @@ let ctx = { fetch: (...a) => globalThis.fetch(...a), env: process.env, errors: [
 const RPCS = {
   ethereum: ['https://ethereum-rpc.publicnode.com', 'https://eth.llamarpc.com', 'https://cloudflare-eth.com'],
   optimism: ['https://optimism-rpc.publicnode.com', 'https://mainnet.optimism.io'],
-  arbitrum: ['https://arbitrum-one-rpc.publicnode.com', 'https://arb1.arbitrum.io/rpc'],
-  base:     ['https://base-rpc.publicnode.com', 'https://mainnet.base.org']
+  arbitrum: ['https://gateway.tenderly.co/public/arbitrum', 'https://arb1.arbitrum.io/rpc', 'https://arbitrum-one.public.blastapi.io', 'https://arbitrum-one-rpc.publicnode.com'],
+  base:     ['https://base-rpc.publicnode.com', 'https://base.api.pocket.network', 'https://mainnet.base.org']
+};
+const LOG_PROVIDERS = {
+  ethereum: ['https://gateway.tenderly.co/public/mainnet', 'https://eth.api.pocket.network'],
+  optimism: ['https://gateway.tenderly.co/public/optimism']
 };
 const BLOCKSCOUT = {
   ethereum: 'https://eth.blockscout.com',
@@ -79,8 +84,10 @@ function checkSeries(name, rows, prevRows, now) {
 
 // ---------- Onchain reads ----------
 async function rpcRaw(chain, method, params) {
-  let last;
-  for (const url of RPCS[chain]) {
+  if (ctx.rpc) return ctx.rpc(chain, method, params);
+  let last, rangeError;
+  const urls = method === 'eth_getLogs' ? [...(LOG_PROVIDERS[chain] || []), ...RPCS[chain]] : RPCS[chain];
+  for (const url of urls) {
     try {
       const j = await getJSON(url, {
         method: 'POST',
@@ -90,12 +97,33 @@ async function rpcRaw(chain, method, params) {
       if (j.error) throw new Error(j.error.message || 'RPC error');
       if (!j.result || j.result === '0x') throw new Error('empty RPC result');
       return j.result;
-    } catch (e) { last = e; }
+    } catch (e) {
+      last = e;
+      if (method === 'eth_getLogs' && /block.{0,24}(range|limit)|range|too many|too large|response size/i.test(e.message)) rangeError = e;
+    }
   }
-  throw last;
+  throw rangeError || last;
 }
-const ethCall = async (chain, to, data) => BigInt(await rpcRaw(chain, 'eth_call', [{ to, data }, 'latest']));
-const storageAt = async (chain, address, slot) => BigInt(await rpcRaw(chain, 'eth_getStorageAt', [address, slot, 'latest']));
+const chains = Object.keys(OVER.tokens);
+const blockTag = chain => ctx.blocks?.[chain] ? '0x' + ctx.blocks[chain].number.toString(16) : 'latest';
+
+async function readHeader(chain, tag, rpc = rpcRaw) {
+  const b = await rpc(chain, 'eth_getBlockByNumber', [tag, false]);
+  if (!/^0x[0-9a-f]+$/i.test(b?.number) || !/^0x[0-9a-f]{64}$/i.test(b.hash) || !/^0x[0-9a-f]+$/i.test(b.timestamp)) {
+    throw new Error(`${chain}: incomplete block header`);
+  }
+  return { number: Number(BigInt(b.number)), hash: b.hash.toLowerCase(), timestamp: Number(BigInt(b.timestamp)) };
+}
+async function finalizedBlocks(now) {
+  const entries = await Promise.all(chains.map(async chain => {
+    const header = await readHeader(chain, 'finalized');
+    if (now - header.timestamp > 3600 || header.timestamp > now + 60) throw new Error(`${chain}: outdated finalized block`);
+    return [chain, header];
+  }));
+  return Object.fromEntries(entries);
+}
+const ethCall = async (chain, to, data) => BigInt(await rpcRaw(chain, 'eth_call', [{ to, data }, blockTag(chain)]));
+const storageAt = async (chain, address, slot) => BigInt(await rpcRaw(chain, 'eth_getStorageAt', [address, slot, blockTag(chain)]));
 
 // Many reads in a few requests through Multicall3. A call that fails comes back as null.
 // Many reads in a few requests through Multicall3, four batches at a time. A call that fails
@@ -108,7 +136,7 @@ async function readMany(chain, calls, size = 300, parallel = 4) {
   await Promise.all(Array.from({ length: Math.min(parallel, batches.length) }, async () => {
     while (next < batches.length) {
       const k = next++;
-      const raw = await rpcRaw(chain, 'eth_call', [{ to: MULTICALL3, data: encodeAggregate3(batches[k]) }, 'latest']);
+      const raw = await rpcRaw(chain, 'eth_call', [{ to: MULTICALL3, data: encodeAggregate3(batches[k]) }, blockTag(chain)]);
       const decoded = decodeAggregate3(raw);
       if (decoded.length !== batches[k].length) throw new Error(`batch reply had ${decoded.length} results for ${batches[k].length} calls`);
       results[k] = decoded.map(r => (r.success && r.data.length >= 66 ? BigInt(r.data.slice(0, 66)) : null));
@@ -149,7 +177,7 @@ async function topHolders(chain, token) {
 
 // Every read must succeed: a failed balance read must never count as zero, or a missing bridge
 // balance would show tens of millions of extra OVER in circulation.
-async function supplySnapshot() {
+async function supplySnapshot({ discoverHolders = true } = {}) {
   const chains = {};
   const lower = s => s.toLowerCase();
   const treasurySet = [...new Set(OVER.treasury.map(lower))];
@@ -162,7 +190,7 @@ async function supplySnapshot() {
       c.treasury += bal;
     }
     // Holders are needed on Ethereum to find the bridge pool; elsewhere they're a bonus.
-    c.holders = chain === 'ethereum'
+    if (discoverHolders) c.holders = chain === 'ethereum'
       ? await step(`holders ${chain}`, () => topHolders(chain, token))
       : await topHolders(chain, token).catch(e => { c.holdersError = e.message; return null; });
     const lockedAddrs = new Set((OVER.locked[chain] || []).map(lower));
@@ -194,9 +222,11 @@ async function supplySnapshot() {
 }
 
 async function buybackInventorySnapshot() {
-  const balances = await Promise.all(Object.entries(OVER.buybackContracts).map(([chain, address]) =>
-    balanceOf(chain, OVER.tokens[chain], address)));
-  return balances.reduce((total, amount) => total + amount, 0);
+  const entries = await Promise.all(Object.entries(OVER.buybackContracts).map(async ([chain, address]) => {
+    const amount = await ethCall(chain, OVER.tokens[chain], SEL.balanceOf + addrWord(address));
+    return [chain, amount.toString()];
+  }));
+  return { raw: Object.fromEntries(entries), total: entries.reduce((n, [, raw]) => n + toTokens(BigInt(raw)), 0) };
 }
 
 // Idle USDC in each chain's sportsbook liquidity pool: the current round's pool contract.
@@ -273,9 +303,11 @@ async function bettingCapital(chain, pool, token, decimals) {
   const rounds = [1, ...Array.from({ length: ROUNDS_AHEAD + 1 }, (_, k) => round + k)];
   const addrs = await readMany(chain, rounds.map(r => ({ to: pool, data: SEL.roundPools + word(r) })));
   const counts = await readMany(chain, rounds.map(r => ({ to: pool, data: SEL.ticketCount + word(r) })));
+  if (addrs.some(a => a == null)) throw new Error('a round pool address didn’t load');
   const pools = rounds.map((r, i) => ({ round: r, address: addrs[i] == null ? null : toAddr(addrs[i]), bets: counts[i] == null ? null : Number(counts[i]) }))
     .filter(p => !isZeroAddr(p.address));
   const bal = await readMany(chain, pools.map(p => ({ to: token, data: SEL.balanceOf + addrWord(p.address) })));
+  if (bal.some(b => b == null)) throw new Error('a round pool balance didn’t load');
   pools.forEach((p, i) => { p.amount = amount(bal[i]); });
 
   const listed = pools.reduce((n, p) => n + (p.bets || 0), 0);
@@ -320,24 +352,23 @@ async function capitalSnapshot() {
 // One figure per currency for the house's betting money: what sits in every round's pool (current,
 // later and default) plus the house's share of open bets (what they hold minus the bettors' stakes,
 // which only become the house's if the bet loses). Null unless every chain was read in full.
+function summarizeCurrency(chains) {
+  if (!chains) return null;
+  const out = { idle: 0, defaultPools: 0, onBets: 0, held: 0, stakes: 0, openBets: 0, chains: {} };
+  for (const [c, v] of Object.entries(chains)) {
+    if (!v || v.error || !v.open || v.open.skipped || !ok(v.open.held) || !ok(v.open.stakes)) return null;
+    const idle = v.pools.reduce((a, p) => a + (p.amount || 0), 0);
+    const dflt = (v.pools.find(p => p.round === 1) || {}).amount || 0;
+    const onBets = Math.max(0, v.open.held - v.open.stakes);
+    out.chains[c] = { idle: Math.round(idle), defaultPool: Math.round(dflt), onBets: Math.round(onBets), openBets: v.open.open };
+    out.idle += idle; out.defaultPools += dflt; out.onBets += onBets; out.held += v.open.held; out.stakes += v.open.stakes; out.openBets += v.open.open;
+  }
+  for (const k of ['idle', 'defaultPools', 'onBets', 'held', 'stakes']) out[k] = Math.round(out[k]);
+  out.total = out.idle + out.onBets;
+  return out;
+}
 function summarizeCapital(capital) {
-  const sum = kind => {
-    const chains = capital && capital[kind];
-    if (!chains) return null;
-    const out = { idle: 0, defaultPools: 0, onBets: 0, held: 0, stakes: 0, openBets: 0, chains: {} };
-    for (const [c, v] of Object.entries(chains)) {
-      if (!v || v.error || !v.open || v.open.skipped || !ok(v.open.held) || !ok(v.open.stakes)) return null;
-      const idle = v.pools.reduce((a, p) => a + (p.amount || 0), 0);
-      const dflt = (v.pools.find(p => p.round === 1) || {}).amount || 0;
-      const onBets = Math.max(0, v.open.held - v.open.stakes);
-      out.chains[c] = { idle: Math.round(idle), defaultPool: Math.round(dflt), onBets: Math.round(onBets), openBets: v.open.open };
-      out.idle += idle; out.defaultPools += dflt; out.onBets += onBets; out.held += v.open.held; out.stakes += v.open.stakes; out.openBets += v.open.open;
-    }
-    for (const k of ['idle', 'defaultPools', 'onBets', 'held', 'stakes']) out[k] = Math.round(out[k]);
-    out.total = out.idle + out.onBets;
-    return out;
-  };
-  const usdc = sum('usdc'), over = sum('over');
+  const usdc = summarizeCurrency(capital?.usdc), over = summarizeCurrency(capital?.over);
   return usdc && over ? { usdc, over } : null;
 }
 
@@ -435,6 +466,85 @@ async function adminSnapshot(contractsList) {
     }
   }
   return out;
+}
+
+function transferScope(admin, overCapital) {
+  const ownersByChain = {}, internalByChain = {};
+  const addresses = values => [...new Set(values.filter(Boolean).map(a => a.toLowerCase()))].sort();
+  for (const chain of chains) {
+    ownersByChain[chain] = addresses([...OVER.treasury, ...Object.keys(admin.chains[chain] || {}), OVER.buybackContracts[chain]]);
+    internalByChain[chain] = addresses([
+      ...ownersByChain[chain], OVER.overPools[chain], ...Object.values(HOUSE.games[chain] || {}),
+      ...(overCapital[chain]?.pools || []).map(p => p.address)
+    ]);
+  }
+  return { ownersByChain, internalByChain };
+}
+
+// Replay only the inputs to the house check, using the same contracts, pool accounting and
+// rounding as the daily job. Historical holder rankings are unnecessary for these four chains.
+export async function historicalHouseReading({ blocks, env = process.env, fetchImpl, rpc }) {
+  if (!chains.every(chain => Number.isSafeInteger(blocks?.[chain]?.number))) throw new Error('four block boundaries required');
+  const saved = ctx;
+  ctx = { ...ctx, blocks, env, rpc, fetch: fetchImpl || globalThis.fetch, errors: [] };
+  try {
+    const supply = await supplySnapshot({ discoverHolders: false });
+    const { total: inventory, raw: inventoryRaw } = await buybackInventorySnapshot();
+    const admin = await adminSnapshot(await contractWatch());
+    const overCapital = {};
+    let games = 0;
+    for (const chain of chains) {
+      if (OVER.overPools[chain]) overCapital[chain] = await bettingCapital(chain, OVER.overPools[chain], OVER.tokens[chain], OVER.decimals);
+      const balances = await readMany(chain, Object.values(HOUSE.games[chain] || {}).map(address => ({
+        to: OVER.tokens[chain], data: SEL.balanceOf + addrWord(address)
+      })));
+      if (balances.some(v => v == null)) throw new Error(`${chain}: missing historical game balance`);
+      games += balances.reduce((total, v) => total + toTokens(v), 0);
+    }
+    const betting = summarizeCurrency(overCapital);
+    if (!betting) throw new Error('historical OVER pools incomplete');
+    const house = supply.treasury + admin.total + betting.total + Math.round(games);
+    return {
+      houseOver: Math.round(house), treasuryOver: Math.round(supply.treasury), adminOver: Math.round(admin.total),
+      bettingOver: betting.total, gamesOver: Math.round(games), inventoryRaw, buybackInventory: Math.round(inventory),
+      circulating: Math.round(supply.circulating), burned: Math.round(supply.burned),
+      float: Math.round(supply.circulating - house - inventory), ...transferScope(admin, overCapital)
+    };
+  } finally { ctx = saved; }
+}
+
+export async function houseTransferCheckpoint({ blocks, previous, date, asOf, ownersByChain, internalByChain, inventoryRaw, rpc = rpcRaw }) {
+  const result = { blocks, startDate: date, asOf, ownersByChain, internalByChain, inventoryRaw, boughtRaw: '0', burnedRaw: '0', events: [] };
+  if (!previous) return result;
+  const sameOwners = chains.every(chain => previous.ownersByChain[chain].join() === ownersByChain[chain].join());
+  // A change of custody changes which balances belong to the house. Start a comparable series again.
+  if (!sameOwners) return result;
+  const { readHouseTransfers } = await import('../lib/house-transfers.js');
+  const events = await Promise.all(chains.map(async chain => {
+    const before = previous.blocks[chain], last = blocks[chain];
+    const canonical = await readHeader(chain, '0x' + before.number.toString(16), rpc);
+    if (canonical.hash !== before.hash || last.number < before.number) throw new Error(`${chain}: incompatible block boundaries`);
+    if (last.number === before.number) return [];
+    return readHouseTransfers({
+      chain, fromBlock: before.number + 1, toBlock: last.number, rpc, token: OVER.tokens[chain],
+      safeBox: OVER.buybackContracts[chain], owners: ownersByChain[chain],
+      internalAddresses: [...new Set([...previous.internalByChain[chain], ...internalByChain[chain]])]
+    });
+  }));
+  result.events = events.flat();
+  for (const [chain, box] of Object.entries(OVER.buybackContracts)) {
+    let expected = BigInt(previous.inventoryRaw[chain]);
+    for (const e of result.events) if (e.chain === chain) {
+      if (e.to === box) expected += BigInt(e.amount);
+      if (e.from === box) expected -= BigInt(e.amount);
+    }
+    if (expected !== BigInt(inventoryRaw[chain])) throw new Error(`${chain}: SafeBox receipts do not reconcile with pinned inventory`);
+  }
+  result.startDate = previous.startDate;
+  const total = (kind, initial) => result.events.reduce((sum, e) => e.kind === kind ? sum + BigInt(e.amount) : sum, BigInt(initial)).toString();
+  result.boughtRaw = total('purchase', previous.boughtRaw);
+  result.burnedRaw = total('burn', previous.burnedRaw);
+  return result;
 }
 
 // Ordinary wallets (not contracts) on any chain's holder list, with their OVER on all four chains
@@ -575,7 +685,10 @@ async function sendAlerts(prev, next) {
     // Only compare fresh, graded checks against a fresh previous reading. A check that wasn't
     // comparable yet (or had no data) counts as Healthy before, so one that starts out at Watch or
     // Alert still opens an issue.
-    const before = (prev.checks || []).find(x => x.id === c.id);
+    let before = (prev.checks || []).find(x => x.id === c.id);
+    if (c.id === 'houseOver' && before && (before.stale || before.state === 'unknown')) {
+      before = { state: prev.houseAlertBaseline || 'pending' };
+    }
     if (!before || c.stale || before.stale) continue;
     if (RANK[c.state] < 0 || before.state === c.state) continue;
     const was = Math.max(0, RANK[before.state] ?? 0);
@@ -586,7 +699,7 @@ async function sendAlerts(prev, next) {
       sent.push(title);
     } else if (c.state === 'good') {
       for (const issue of openIssues.filter(i => (i.body || '').includes(marker('check:' + c.id)))) {
-        await gh(`/issues/${issue.number}/comments`, 'POST', { body: `Back to Healthy. ${c.text}` });
+        await gh(`/issues/${issue.number}/comments`, 'POST', { body: [`Back to Healthy. ${c.text}`, next.alertDetail?.[c.id]].filter(Boolean).join('\n\n') });
         await gh(`/issues/${issue.number}`, 'PATCH', { state: 'closed', state_reason: 'completed' });
         sent.push(`closed #${issue.number}`);
       }
@@ -662,6 +775,7 @@ async function main(now, OUT) {
   const prev = await readJSON(path.join(OUT, 'latest.json'));
   const history = (await readJSON(path.join(OUT, 'history.json'))) || [];
 
+  ctx.blocks = await step('finalized block boundaries', () => finalizedBlocks(now));
   const series = (name, url, prevRows) => step(name, async () =>
     checkSeries(name, dailySeries(await getJSON(url)).map(p => [p.t, Math.round(p.v)]), prevRows, now));
   const [revFresh, buyFresh, treJ, price, liquidity, governance, poolsFresh, inventoryFresh] = await Promise.all([
@@ -691,7 +805,7 @@ async function main(now, OUT) {
   }
 
   const fresh = name => sources[name] && sources[name].ok;
-  const inventory = settle('buybackInventory', inventoryFresh, prev?.supply?.buybackInventory);
+  const inventory = settle('buybackInventory', inventoryFresh?.total, prev?.supply?.buybackInventory);
   const revRows = settle('revenue', revFresh, prev && prev.revenue);
   const buyRows = settle('buybacks', buyFresh, prev && prev.buybacks);
   const treasury = treJ ? parseTreasury(treJ) : null;
@@ -781,6 +895,15 @@ async function main(now, OUT) {
     volume24h: fresh('liquidity') ? liq.volume24h : null,
     checks: {}
   };
+  // Always rebuild a day's interval from the last complete earlier date. Reruns replace the
+  // same interval, and an outage leaves earlier cursors available for the next successful scan.
+  const previous = history.filter(h => h.date < date && h.houseTransfers).at(-1)?.houseTransfers;
+  const transferFresh = ctx.blocks && ['contracts', 'admin', 'betting', 'house', 'supply', 'buybackInventory'].every(fresh)
+    ? await step('house transfers', () => houseTransferCheckpoint({
+        blocks: ctx.blocks, previous, date, asOf: now, inventoryRaw: inventoryFresh.raw, ...transferScope(admin, capital.over)
+      })) : null;
+  settle('houseTransfers', transferFresh, null);
+  row.houseTransfers = transferFresh;
   const i = history.findIndex(h => h.date === date);
   if (i >= 0) history[i] = row; else history.push(row);
   history.sort((a, b) => a.date.localeCompare(b.date));
@@ -796,7 +919,11 @@ async function main(now, OUT) {
   const flows = computeFlows(readings, rev, buy);
   const moves = fresh('supply') ? walletMoves(prev?.supply, supply, prev?.admin, fresh('admin') ? admin : null) : [];
 
+  const houseCheck = checks.find(c => c.id === 'houseOver');
+  const oldCheck = prev?.checks?.find(c => c.id === 'houseOver');
+  const lastHouseGrade = prev?.houseAlertBaseline || (oldCheck && !oldCheck.stale && RANK[oldCheck.state] >= 0 ? oldCheck.state : 'pending');
   const next = {
+    houseAlertBaseline: !houseCheck.stale && RANK[houseCheck.state] >= 0 ? houseCheck.state : lastHouseGrade,
     generatedAt: now,
     sources,
     price: priceData,
@@ -818,7 +945,7 @@ async function main(now, OUT) {
     majors,
     checks,
     errors: ctx.errors,
-    alertDetail: { houseOver: moves.length ? `House wallets that moved since the last reading:\n- ${moves.join('\n- ')}` : null }
+    alertDetail: { houseOver: [houseEvidenceMarkdown(stats.overEvidence), moves.length ? `House wallets that moved since the last reading:\n- ${moves.join('\n- ')}` : null].filter(Boolean).join('\n\n') || null }
   };
 
   await writeFile(path.join(OUT, 'latest.json'), JSON.stringify(next));

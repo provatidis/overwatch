@@ -334,7 +334,31 @@ function tile(parent, label, value, opts = {}) {
   }
   if (opts.note) el('p', 'note', opts.note, t);
 }
-function check(parent, c) {
+function receiptList(items, parent) {
+  const list = el('ul', 'receipt-list', null, parent);
+  for (const item of items) link(item.href, item.text, el('li', null, null, list));
+}
+function showHouseEvidence(parent, evidence) {
+  if (!evidence) return;
+  for (const line of evidence.float) el('p', 'check-evidence', line, parent);
+  if (evidence.movements.length) {
+    el('p', 'receipt-title', 'Verified transfers', parent);
+    receiptList(evidence.movements.slice(0, 3), parent);
+    if (evidence.movements.length > 3) {
+      const details = el('details', 'receipt-details', null, parent);
+      el('summary', null, `Other transfers (${evidence.movements.length - 3})`, details);
+      receiptList(evidence.movements.slice(3), details);
+    }
+  }
+  if (evidence.purchases.length) {
+    const details = el('details', 'receipt-details', null, parent);
+    el('summary', null, evidence.summary, details);
+    receiptList(evidence.purchases, details);
+  } else if (evidence.summary) {
+    el('p', 'check-evidence', evidence.summary, parent);
+  }
+}
+function check(parent, c, evidence) {
   const li = el('li', 'check ' + c.state, null, parent);
   li.id = 'check-' + c.id;
   el('span', 'badge', GRADE[c.state][0], li).setAttribute('aria-hidden', 'true');
@@ -344,7 +368,11 @@ function check(parent, c) {
   h.appendChild(document.createTextNode(` · ${c.title}`));
   if (c.why) el('p', 'check-why', c.why, body);
   el('p', 'check-text', c.text, body);
-  if (c.staleSince) el('p', 'stale-note', `Today’s update failed, so this uses data from ${c.staleSince}. No alerts until it refreshes.`, body);
+  if (c.id === 'houseOver') showHouseEvidence(body, evidence);
+  if (c.staleSince) {
+    const note = c.id === 'houseOver' ? 'The current reading is incomplete. Alerts resume when coverage is complete.' : `Today’s update failed, so this uses data from ${c.staleSince}. No alerts until it refreshes.`;
+    el('p', 'stale-note', note, body);
+  }
 }
 
 // Checks in the order a newcomer needs them: are buybacks paid for, is the bankroll holding, is the
@@ -364,21 +392,28 @@ function verdict(parent, checks) {
     const text = el('span', 'verdict-text', null, a);
     el('span', 'sr-only', GRADE[c.state][1] + ': ', text);
     text.append(c.short || c.title);
-    if (c.staleSince) el('span', 'verdict-stale', ' (earlier data)', text);
+    if (c.staleSince) el('span', 'verdict-stale', c.id === 'houseOver' ? ' (incomplete)' : ' (earlier data)', text);
   });
 }
 
 // ---------- State ----------
 const state = { range: 365, mode: 'month', data: null, now: null, rev: null, buy: null, treasury: null, price: null, history: [], loaded: false };
 
-const SOURCE_NAMES = { buybackInventory: 'buyback inventory', admin: 'admin multisigs', revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', overPools: 'OVER pools', betting: 'betting money', house: 'casino, Speed Markets, ETH and BTC', majors: 'ETH and BTC prices', contracts: 'pool contracts', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
+const SOURCE_NAMES = { houseTransfers: 'OVER transfer records', buybackInventory: 'buyback inventory', admin: 'admin multisigs', revenue: 'house result', buybacks: 'buybacks', treasury: 'treasury', pools: 'betting pools', overPools: 'OVER pools', betting: 'betting money', house: 'casino, Speed Markets, ETH and BTC', majors: 'ETH and BTC prices', contracts: 'pool contracts', price: 'price', supply: 'supply', liquidity: 'liquidity', governance: 'governance' };
 const staleSources = () => Object.entries((state.data && state.data.sources) || {}).filter(([, v]) => !v.ok);
 const sourceDate = name => { const v = state.data && state.data.sources && state.data.sources[name]; return v && v.asOf ? fmtDate(v.asOf) : 'an earlier day'; };
 
 function renderSummary() {
   const { rev, buy, price } = state;
   const readings = readingsFromHistory(state.history);
-  const s = computeStats({ rev, buy, treasury: state.treasury, readings, overReadings: overReadingsFromHistory(state.history) });
+  const lastDate = state.history.at(-1)?.date;
+  const snapshotDate = ok(state.data?.generatedAt) ? new Date(state.data.generatedAt * 1000).toISOString().slice(0, 10) : null;
+  const overReadings = lastDate === snapshotDate ? overReadingsFromHistory(state.history) : [];
+  const latestReading = overReadings.at(-1);
+  if (latestReading && (!state.data?.sources?.houseTransfers?.ok || latestReading.transfers?.asOf !== state.data.generatedAt)) {
+    latestReading.transfers = null;
+  }
+  const s = computeStats({ rev, buy, treasury: state.treasury, readings, overReadings });
   const end = s.lastT != null ? fmtDate(s.lastT) : null;
 
   // The headline: earnings and buybacks for the same dated period. Built aside and swapped in only
@@ -428,7 +463,7 @@ function renderSummary() {
     const bad = c.sources.filter(n => failed.has(n));
     return { ...c, staleSince: bad.length ? sourceDate(bad[0]) : null };
   });
-  [...checks].sort((a, b) => pos(a) - pos(b)).forEach(c => check(list, c));
+  [...checks].sort((a, b) => pos(a) - pos(b)).forEach(c => check(list, c, s.overEvidence));
   verdict($('verdict'), checks);
 
   // Describe the rest of what the treasury holds next to the stablecoin chart.

@@ -38,6 +38,7 @@ export function makeWorld(over = {}) {
     now: T0,
     revenuePerDay: 6000,
     buyback: t => 2300,              // daily buyback for the day starting at t
+    transferLogs: [],
     autoBuy: true,                   // each full day's buyback lands in the Optimism buyback contract, at $0.18
     treasuryStable: 2_450_000,
     poolUsdc: { optimism: 173_000, arbitrum: 186_000, base: 144_000 },
@@ -78,6 +79,43 @@ export function makeWorld(over = {}) {
   const days = n => Array.from({ length: n }, (_, i) => day0() - (n - 1 - i) * DAY);
   const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
   const rpc = result => json({ jsonrpc: '2.0', id: 1, result });
+
+  const baseBlock = 10_000;
+  const height = seconds => baseBlock + Math.floor((seconds - T0) / DAY * 100);
+  const hash = n => word(n);
+  const tx = (c, day) => hash((idx(c) + 1) * 10_000 + day * 10);
+  const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+  const buybackTopic = '0x8e8412cac6b961b95ef832e2bac486977bbd29eb9725f9eddd97f3380c31f649';
+  const addressTopic = a => word(BigInt(a));
+  function log(c, block, txHash, logIndex, address, topics, data) {
+    return { address, topics, data, transactionHash: txHash, blockHash: hash(block), transactionIndex: '0x0', removed: false,
+      blockNumber: '0x' + block.toString(16), logIndex: '0x' + logIndex.toString(16) };
+  }
+  w.transfer = (c, day, from, to, amount) => {
+    const block = baseBlock + day * 100;
+    w.transferLogs.push({ c, log: log(c, block, tx(c, day), w.transferLogs.length, lc(OVER.tokens[c]),
+      [transferTopic, addressTopic(from), addressTopic(to)], units(amount, 18)) });
+  };
+  function logs(c) {
+    const result = w.transferLogs.filter(t => t.c === c).map(t => t.log);
+    if (!w.autoBuy || c !== 'optimism') return result;
+    for (let day = 1; day <= Math.floor((w.now - T0) / DAY); day++) {
+      const dollars = w.buyback(Math.floor(T0 / DAY) * DAY + (day - 1) * DAY);
+      if (!dollars) continue;
+      const box = OVER.buybackContracts[c], pool = '0x' + '9'.repeat(40);
+      const block = baseBlock + day * 100, txHash = hash(5_000_000 + day);
+      const amount = units(dollars / 0.18, 18);
+      result.push(log(c, block, txHash, 0, OVER.tokens[c], [transferTopic, addressTopic(pool), addressTopic(box)], amount),
+        log(c, block, txHash, 1, box, [buybackTopic], units(dollars, 6) + amount.slice(2)));
+    }
+    return result;
+  }
+  function match(filter, l) {
+    const choices = a => Array.isArray(a) ? a : [a];
+    return Number(l.blockNumber) >= Number(filter.fromBlock) && Number(l.blockNumber) <= Number(filter.toBlock)
+      && (!filter.address || choices(filter.address).map(lc).includes(l.address.toLowerCase()))
+      && (filter.topics || []).every((t, i) => t == null || choices(t).map(lc).includes(l.topics[i]?.toLowerCase()));
+  }
 
   w.fetch = async (url, opts = {}) => {
     url = String(url);
@@ -132,6 +170,16 @@ export function makeWorld(over = {}) {
     }
     if (method === 'POST' && opts.body) {
       const req = JSON.parse(opts.body);
+      const c = chainOf(url);
+      if (req.method === 'eth_getBlockByNumber') {
+        const tag = req.params[0];
+        const n = tag === 'finalized' ? height(w.now) : Number(tag);
+        return rpc({ number: '0x' + n.toString(16), hash: hash(n), timestamp: '0x' + Math.round(T0 + (n - baseBlock) * DAY / 100).toString(16) });
+      }
+      if (req.method === 'eth_getLogs') {
+        if (w.fail.has('logs-' + c)) return json({ error: { message: 'logs unavailable' } });
+        return rpc(logs(c).filter(l => match(req.params[0], l)));
+      }
       if (req.method === 'eth_call' || req.method === 'eth_getStorageAt') return chain(req, url);
     }
     return new Response(`not faked: ${url}`, { status: 404 });
@@ -192,9 +240,9 @@ export function makeWorld(over = {}) {
       if (data === '0x18160ddd') return units(w.supply[c], 18);
       if (who === OVER.buybackContracts[c] && w.fail.has('buyback-inventory-' + c)) throw new Error('inventory balance unavailable');
       if (c === 'optimism' && who === OVER.buybackContracts.optimism && w.autoBuy) {
-        let bought = 0;
-        for (let d = Math.floor(T0 / DAY) * DAY; d < Math.floor(w.now / DAY) * DAY; d += DAY) bought += w.buyback(d) / 0.18;
-        return units(((w.wallets[c] || {})[who] || 0) + bought, 18);
+        let balance = BigInt(units((w.wallets[c] || {})[who] || 0, 18));
+        for (let d = Math.floor(T0 / DAY) * DAY; d < Math.floor(w.now / DAY) * DAY; d += DAY) balance += BigInt(units(w.buyback(d) / 0.18, 18));
+        return word(balance);
       }
       if (who === roundPool('over', c)) return units(w.overPool[c], 18);
       if (who === defaultPool('over', c)) return units(10_000, 18);

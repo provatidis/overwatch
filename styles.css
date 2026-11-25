@@ -148,7 +148,7 @@ h2 { font-size:30px; font-weight:400; letter-spacing:-.04em; line-height:1.16; m
 
 /* Thesis checks */
 .checks { list-style:none; margin:18px 0 0; padding:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
-.check { scroll-margin-top:16px; display:grid; grid-template-columns:28px 1fr; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+.check { scroll-margin-top:16px; display:grid; grid-template-columns:28px minmax(0, 1fr); gap:12px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
 .badge { width:28px; height:28px; border-radius:50%; display:grid; place-items:center; font-size:15px; font-weight:700; line-height:1; color:#fff; background:var(--muted); }
 .check.good .badge { background:var(--good); }
 .check.watch .badge { background:var(--warning); color:#0b0b0b; }
@@ -166,6 +166,12 @@ h2 { font-size:30px; font-weight:400; letter-spacing:-.04em; line-height:1.16; m
 .check-title strong { font-weight:600; }
 .check-why { margin:6px 0 0; font-size:14px; line-height:1.5; }
 .check-text { margin:6px 0 0; font-size:13.5px; line-height:1.5; color:var(--muted); }
+.check-evidence, .receipt-title, .receipt-details, .receipt-list { font-size:13px; line-height:1.5; }
+.check-evidence, .receipt-title, .receipt-details { margin:8px 0 0; }
+.receipt-title { font-weight:600; }
+.receipt-list { margin:4px 0 0; padding-inline-start:18px; overflow-wrap:anywhere; }
+.receipt-list li + li { margin-top:3px; }
+.receipt-details summary { width:fit-content; max-width:100%; }
 
 /* Controls */
 .controls { display:flex; flex-wrap:wrap; gap:14px 28px; align-items:center; padding-top:36px; }
