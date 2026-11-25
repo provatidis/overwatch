@@ -408,10 +408,19 @@ function renderSummary() {
   const readings = readingsFromHistory(state.history);
   const lastDate = state.history.at(-1)?.date;
   const snapshotDate = ok(state.data?.generatedAt) ? new Date(state.data.generatedAt * 1000).toISOString().slice(0, 10) : null;
-  const overReadings = lastDate === snapshotDate ? overReadingsFromHistory(state.history) : [];
+  let overReadings = lastDate === snapshotDate ? overReadingsFromHistory(state.history) : [];
   const latestReading = overReadings.at(-1);
-  if (latestReading && (!state.data?.sources?.houseTransfers?.ok || latestReading.transfers?.asOf !== state.data.generatedAt)) {
-    latestReading.transfers = null;
+  if (latestReading) {
+    const freshTransfers = state.data?.sources?.houseTransfers?.ok;
+    const receiptTime = latestReading.transfers?.asOf;
+    const float = state.data?.supply?.float;
+    const sameFloat = (latestReading.float ?? null) === (ok(float) ? Math.round(float) : null);
+    // Cached files from different runs on the same date can disagree about both receipts and float.
+    if (!sameFloat || ((freshTransfers || receiptTime != null) && receiptTime !== state.data.generatedAt)) {
+      overReadings = [];
+    } else if (!freshTransfers) {
+      latestReading.transfers = null;
+    }
   }
   const s = computeStats({ rev, buy, treasury: state.treasury, readings, overReadings });
   const end = s.lastT != null ? fmtDate(s.lastT) : null;
