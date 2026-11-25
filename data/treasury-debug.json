@@ -1,153 +1,153 @@
 {
  "current": {
   "Arbitrum-OwnTokens": 0,
-  "OP Mainnet-OwnTokens": 258428.14751,
-  "Arbitrum": 454909.4723,
-  "Polygon": 0.00008,
-  "Ethereum": 4728906.12619,
-  "OP Mainnet": 500975.09862,
-  "Ethereum-OwnTokens": 8395081.18287,
-  "OwnTokens": 8653509.33038
+  "Polygon": 0.00007,
+  "Ethereum-OwnTokens": 8274982.92699,
+  "OP Mainnet-OwnTokens": 254731.12909,
+  "OP Mainnet": 500145.53081,
+  "Ethereum": 4718812.24404,
+  "Arbitrum": 453188.44833,
+  "OwnTokens": 8529714.05608
  },
  "last": {
   "Arbitrum-OwnTokens": {
    "tvl": {
-    "date": 1795544231,
+    "date": 1795587431,
     "totalLiquidityUSD": 0
    },
    "tokens": {
-    "date": 1795544231,
+    "date": 1795587431,
     "tokens": {}
    },
-   "days": 1302
-  },
-  "OP Mainnet-OwnTokens": {
-   "tvl": {
-    "date": 1795544231,
-    "totalLiquidityUSD": 258428
-   },
-   "tokens": {
-    "date": 1795544231,
-    "tokens": {
-     "THALES": 258428.14751
-    }
-   },
-   "days": 1288
-  },
-  "Arbitrum": {
-   "tvl": {
-    "date": 1795544231,
-    "totalLiquidityUSD": 454909
-   },
-   "tokens": {
-    "date": 1795544231,
-    "tokens": {
-     "ETH": 20009.50601,
-     "ARB": 1204.66497,
-     "WETH": 56802.13043,
-     "USDC": 271854.88991,
-     "AMC": 6.35789,
-     "WBTC": 20260.18087,
-     "OVER": 84771.74222
-    }
-   },
-   "days": 1302
+   "days": 1303
   },
   "Polygon": {
    "tvl": {
-    "date": 1795544231,
+    "date": 1795587431,
     "totalLiquidityUSD": 0
    },
    "tokens": {
-    "date": 1795544231,
+    "date": 1795587431,
     "tokens": {
-     "SMT": 0.00008
+     "SMT": 0.00007
     }
    },
-   "days": 1288
-  },
-  "Ethereum": {
-   "tvl": {
-    "date": 1795544231,
-    "totalLiquidityUSD": 4728906
-   },
-   "tokens": {
-    "date": 1795544231,
-    "tokens": {
-     "USDT": 777127.31108,
-     "USDC": 1104046.83171,
-     "SAFE": 720.22533,
-     "GRT": 392.1487,
-     "AUSDC": 265.24242,
-     "MTV": 0.08573,
-     "EETH": 0,
-     "CVX": 0.73133,
-     "SNX": 9.19346,
-     "WETH": 423530.60903,
-     "CRV": 118.13455,
-     "ZRX": 0,
-     "DRV": 306.03297,
-     "GRG": 0.00102,
-     "SPK": 63.48747,
-     "YFTE": 0.03881,
-     "USDTB": 0.0001,
-     "ZIK": 0.08435,
-     "MUSD": 0.0001,
-     "HEX": 0.00045,
-     "ZKJ": 0.86415,
-     "ASNX": 0.18347,
-     "OVER": 2422324.91996
-    }
-   },
-   "days": 1288
-  },
-  "OP Mainnet": {
-   "tvl": {
-    "date": 1795544231,
-    "totalLiquidityUSD": 500975
-   },
-   "tokens": {
-    "date": 1795544231,
-    "tokens": {
-     "ETH": 18699.63918,
-     "OP": 0.75008,
-     "USDC": 159407.20975,
-     "USDT": 139151.69859,
-     "WETH": 16324.92735,
-     "VELO": 2.70194,
-     "GRG": 0.00203,
-     "OPP": 0.01189,
-     "S*USDC": 10.04171,
-     "OVER": 167378.11608
-    }
-   },
-   "days": 1288
+   "days": 1289
   },
   "Ethereum-OwnTokens": {
    "tvl": {
-    "date": 1795544231,
-    "totalLiquidityUSD": 8395081
+    "date": 1795587431,
+    "totalLiquidityUSD": 8274982
    },
    "tokens": {
-    "date": 1795544231,
+    "date": 1795587431,
     "tokens": {
-     "THALES": 8395081.18287
+     "THALES": 8274982.92699
     }
    },
-   "days": 1288
+   "days": 1289
+  },
+  "OP Mainnet-OwnTokens": {
+   "tvl": {
+    "date": 1795587431,
+    "totalLiquidityUSD": 254731
+   },
+   "tokens": {
+    "date": 1795587431,
+    "tokens": {
+     "THALES": 254731.12909
+    }
+   },
+   "days": 1289
+  },
+  "OP Mainnet": {
+   "tvl": {
+    "date": 1795587431,
+    "totalLiquidityUSD": 500145
+   },
+   "tokens": {
+    "date": 1795587431,
+    "tokens": {
+     "ETH": 18403.7447,
+     "OP": 0.73859,
+     "USDC": 159414.93259,
+     "USDT": 139131.44489,
+     "WETH": 16080.80535,
+     "VELO": 2.64632,
+     "GRG": 0.00199,
+     "OPP": 0.01171,
+     "S*USDC": 10.04145,
+     "OVER": 167101.16323
+    }
+   },
+   "days": 1289
+  },
+  "Ethereum": {
+   "tvl": {
+    "date": 1795587431,
+    "totalLiquidityUSD": 4718812
+   },
+   "tokens": {
+    "date": 1795587431,
+    "tokens": {
+     "USDT": 777026.16315,
+     "USDC": 1104100.31976,
+     "SAFE": 707.00855,
+     "GRT": 382.464,
+     "MTV": 0.08537,
+     "CVX": 0.71369,
+     "SNX": 9.12938,
+     "WETH": 417501.54626,
+     "CRV": 117.12674,
+     "ZRX": 0,
+     "DRV": 322.58515,
+     "GRG": 0.001,
+     "SPK": 62.17567,
+     "YFTE": 0.04453,
+     "USDTB": 0.0001,
+     "ZIK": 0.08343,
+     "MUSD": 0.0001,
+     "HEX": 0.00043,
+     "ZKJ": 0.81914,
+     "AUSDC": 264.98143,
+     "ASNX": 0.18566,
+     "EETH": 0,
+     "OVER": 2418316.81052
+    }
+   },
+   "days": 1289
+  },
+  "Arbitrum": {
+   "tvl": {
+    "date": 1795587431,
+    "totalLiquidityUSD": 453188
+   },
+   "tokens": {
+    "date": 1795587431,
+    "tokens": {
+     "ETH": 19698.13552,
+     "ARB": 1181.24168,
+     "WETH": 55865.91561,
+     "USDC": 271868.06054,
+     "AMC": 6.39273,
+     "WBTC": 19937.22793,
+     "OVER": 84631.47432
+    }
+   },
+   "days": 1303
   },
   "OwnTokens": {
    "tvl": {
-    "date": 1795544231,
-    "totalLiquidityUSD": 8653509
+    "date": 1795587431,
+    "totalLiquidityUSD": 8529714
    },
    "tokens": {
-    "date": 1795544231,
+    "date": 1795587431,
     "tokens": {
-     "THALES": 8653509.33038
+     "THALES": 8529714.05608
     }
    },
-   "days": 1302
+   "days": 1303
   }
  }
 }
