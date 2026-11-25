@@ -534,27 +534,27 @@
  },
  {
   "date": "2026-11-25",
-  "price": 0.174771,
-  "mcap": 9286239.260557996,
+  "price": 0.175022,
+  "mcap": 9299303.24058378,
   "treasuryStable": 2451766,
   "def": 4,
-  "poolUsdc": 487642,
-  "bettingUsdc": 841830,
-  "bettingOver": 1684349,
+  "poolUsdc": 490783,
+  "bettingUsdc": 843706,
+  "bettingOver": 1684305,
   "circulating": 53133062,
   "burned": 16286938,
-  "buybackInventory": 14365,
-  "float": 33452595,
+  "buybackInventory": 15492,
+  "float": 33451532,
   "treasuryOver": 15434317,
-  "poolOver": 786103,
+  "poolOver": 784740,
   "adminOver": 2119616,
-  "houseOver": 19666103,
+  "houseOver": 19666038,
   "walletStable": 2381434,
-  "gamesUsdc": 123058,
-  "gamesOver": 427821,
+  "gamesUsdc": 123108,
+  "gamesOver": 427800,
   "eth": [
    267.132,
-   214.459,
+   214.413,
    32.231
   ],
   "btc": [
@@ -562,10 +562,10 @@
    1.7604,
    0.0323
   ],
-  "ethPrice": 1642.73,
-  "btcPrice": 58585,
-  "liquidityUsd": 623261,
-  "volume24h": 9436,
+  "ethPrice": 1634.68,
+  "btcPrice": 58239,
+  "liquidityUsd": 622931,
+  "volume24h": 9555,
   "checks": {
    "bankroll": "good",
    "trend": "pending",
@@ -576,28 +576,28 @@
   "houseTransfers": {
    "blocks": {
     "ethereum": {
-     "number": 26492088,
-     "hash": "0x8918da9ad3ea80f668be3b63b956d7d9bb70a0400237b5b9804a01015908c810",
-     "timestamp": 1795608407
+     "number": 26492662,
+     "hash": "0x71c9b3a7944404726138975a17d6512d4936f122ab687a2fc1845d6ffdbe444b",
+     "timestamp": 1795615319
     },
     "optimism": {
-     "number": 160004759,
-     "hash": "0xfd5acf1dc6dc8b0bc48a4b81c40e611d9cbb3df9de5e009312bcd2d9dde78df3",
-     "timestamp": 1795608295
+     "number": 160007974,
+     "hash": "0x6fe1b87df7644d7b03baf0902637dd5dede0497357630119641436f8505b1f8b",
+     "timestamp": 1795614725
     },
     "arbitrum": {
-     "number": 527415986,
-     "hash": "0x6004b7873aab7509fabe6130a3f01b080c92f38533b12e14b1612a2d479bd6da",
-     "timestamp": 1795608377
+     "number": 527441748,
+     "hash": "0x03152e1e52ef4e5923e21cebf0206a20cb5760b076a844b195fecb261dfe3c5f",
+     "timestamp": 1795615255
     },
     "base": {
-     "number": 62089952,
-     "hash": "0xccfc8daa444205bc3b64d9a8a8e151a72a89fb31200eee3beb1826b44bb65f8d",
-     "timestamp": 1795608366
+     "number": 62122688,
+     "hash": "0x927167bfd1d7928618ff2f5df70517573a3045085cddd0effb9f06eed5ec5acb",
+     "timestamp": 1795614913
     }
    },
    "startDate": "2026-11-23",
-   "asOf": 1795609442,
+   "asOf": 1795616228,
    "ownersByChain": {
     "ethereum": [
      "0x1777c6d588fd931751762836811529c0073d6376",
@@ -678,10 +678,10 @@
     ]
    },
    "inventoryRaw": {
-    "optimism": "14364678503584218117229",
+    "optimism": "15492211365446204692582",
     "base": "0"
    },
-   "boughtRaw": "24847599666617546324719",
+   "boughtRaw": "25975132528479532900072",
    "burnedRaw": "800000000000000000000000",
    "events": [
     {
@@ -762,6 +762,16 @@
      "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
      "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
      "amount": "1126593238880880768987",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160006588,
+     "txHash": "0xdf1b82a6d247e432ef8239267f5aab36c61cb1a1fabb2b619c7e06f355ffcfe9",
+     "logIndex": 14,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1127532861861986575353",
      "kind": "purchase"
     }
    ]
