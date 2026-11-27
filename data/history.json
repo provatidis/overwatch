@@ -1041,5 +1041,280 @@
     }
    ]
   }
+ },
+ {
+  "date": "2026-11-27",
+  "price": 0.174143,
+  "mcap": 9252777.227609664,
+  "treasuryStable": 2421779,
+  "def": 4,
+  "poolUsdc": 466784,
+  "bettingUsdc": 866275,
+  "bettingOver": 1664262,
+  "circulating": 53133062,
+  "burned": 16286938,
+  "buybackInventory": 41776,
+  "float": 33444531,
+  "treasuryOver": 15434317,
+  "poolOver": 755340,
+  "adminOver": 2119616,
+  "houseOver": 19646755,
+  "walletStable": 2328408,
+  "gamesUsdc": 124594,
+  "gamesOver": 428560,
+  "eth": [
+   266.132,
+   214.756,
+   33.341
+  ],
+  "btc": [
+   0.3366,
+   1.8698,
+   0.0324
+  ],
+  "ethPrice": 1726.02,
+  "btcPrice": 61475,
+  "liquidityUsd": 620734,
+  "volume24h": 7478,
+  "checks": {
+   "bankroll": "good",
+   "trend": "pending",
+   "cover": "good",
+   "rate": "good",
+   "houseOver": "good"
+  },
+  "houseTransfers": {
+   "blocks": {
+    "ethereum": {
+     "number": 26506882,
+     "hash": "0x5b1a8406188c7cc66058cd8211fbd5eee3750a6598b6dd07a0697859c57eda32",
+     "timestamp": 1795786583
+    },
+    "optimism": {
+     "number": 160093683,
+     "hash": "0x152eed1e637199461fbbcee2962cd0a3494bb0df1e28750fa34de753cece4a0a",
+     "timestamp": 1795786143
+    },
+    "arbitrum": {
+     "number": 528019022,
+     "hash": "0xbd47e8c2efc2f5ce2a3fff727379c055815a752c8e3a2d9e8eda971565729be9",
+     "timestamp": 1795786434
+    },
+    "base": {
+     "number": 62980800,
+     "hash": "0xeea963d8aca952c496bde622e8da0cfa098c5f4d7c1b6f313276105cfeb6742a",
+     "timestamp": 1795786535
+    }
+   },
+   "startDate": "2026-11-23",
+   "asOf": 1795787516,
+   "ownersByChain": {
+    "ethereum": [
+     "0x1777c6d588fd931751762836811529c0073d6376",
+     "0xdac09f37e132d91b962f30e6ec40d2d08b82b0fa"
+    ],
+    "optimism": [
+     "0x1777c6d588fd931751762836811529c0073d6376",
+     "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "0xdac09f37e132d91b962f30e6ec40d2d08b82b0fa",
+     "0xef2b0a2ffcdcd3b53d81800d19a543136f26a6b8"
+    ],
+    "arbitrum": [
+     "0x0089282ac624bbbda7ec472d63ee99643d7edf4a",
+     "0x1777c6d588fd931751762836811529c0073d6376",
+     "0xdac09f37e132d91b962f30e6ec40d2d08b82b0fa"
+    ],
+    "base": [
+     "0x1777c6d588fd931751762836811529c0073d6376",
+     "0xd5679539c29eebe69347ace5deef867b19dba7b7",
+     "0xdac09f37e132d91b962f30e6ec40d2d08b82b0fa",
+     "0xf334412b96fe4a9fc0a93d6297574a3b30217e64"
+    ]
+   },
+   "internalByChain": {
+    "ethereum": [
+     "0x1777c6d588fd931751762836811529c0073d6376",
+     "0xdac09f37e132d91b962f30e6ec40d2d08b82b0fa"
+    ],
+    "optimism": [
+     "0x1777c6d588fd931751762836811529c0073d6376",
+     "0x278a57140870e8d697a2bf7321ffd212c4243adc",
+     "0x4ab51a404e6d37141b08b872a3382406b227fea7",
+     "0x4bace3b2bc955c11166e35673c71be1593b42f80",
+     "0x59a7a8ae9d58d69a69b6a24770ec771110647226",
+     "0x5c4618768a9332a09470ce5bfda5308985ef2a19",
+     "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "0xad492d85869e059f4a4e2747c9de9c3193471c0d",
+     "0xdac09f37e132d91b962f30e6ec40d2d08b82b0fa",
+     "0xe16b8a01490835ec1e76babbb3cadd8921b32001",
+     "0xec5757736e10500cc243a1b43a41bb973717298e",
+     "0xef2b0a2ffcdcd3b53d81800d19a543136f26a6b8",
+     "0xf2680aa6a4d9e354a3c65df035552a7f708ba0ca",
+     "0xf8c6314408bf0d9b0f790b1ff88fdf4b29097af2",
+     "0xff8cf5abf583d0979c0b9c35d62dd1fd52cce7c7"
+    ],
+    "arbitrum": [
+     "0x0089282ac624bbbda7ec472d63ee99643d7edf4a",
+     "0x02d0123a89ae6ef27419d5ebb158d1ed4cf24fa3",
+     "0x0be99020775d3a13c7649ee04a496bcc045d0ea6",
+     "0x0ecf98bf910dcaed357ec42cb29f12a7a280636b",
+     "0x15ec8d1dfe47a2c4818dfde8db2738af48d26012",
+     "0x1777c6d588fd931751762836811529c0073d6376",
+     "0x5a5b66c0dd06b3651b0a53cf4e6c5ad468ce5bf5",
+     "0x94f1834c60504d6ef01a74d8b7605ef61ac21c9d",
+     "0xa9d5789824abc53d52224ba6d4ef6d41e99d8699",
+     "0xb444b352c3f070bc4419ec732b5555847f477ab2",
+     "0xc5f5186b46c84bf63a9e166bfa2175d9bc391ce2",
+     "0xc9df7fe74ff692d3c4d8259b9ad42f17a93e022b",
+     "0xdac09f37e132d91b962f30e6ec40d2d08b82b0fa",
+     "0xe92b4c614b04c239d30c31a7ea1290addcb8217d"
+    ],
+    "base": [
+     "0x1500b398ad5f6a0ada60d1f2b433126bbfe9b0fc",
+     "0x1777c6d588fd931751762836811529c0073d6376",
+     "0x18a852273002cc23264b4b0d7eed7a171509fc63",
+     "0x1e20b82a849da8797b775b4f3c97119d67198dc4",
+     "0x2c1443084574a3bd3d61c00ad7fc504ed3703ec2",
+     "0x6848f001dddb4442d352c495c7b4a231e3889b70",
+     "0x72ae32f99362d7906a83f0f50bebc0c4bd84b8fd",
+     "0x85b827d133fedc36b844b20f4a198da583b25baa",
+     "0x8b09fc184ee075270244ad33fef2b153e37911a0",
+     "0xab487c74bd9fb88cea5d39f25c6a15c4a7734055",
+     "0xb4199dc163f3206643649e117a816ad0decb6c3b",
+     "0xd5679539c29eebe69347ace5deef867b19dba7b7",
+     "0xdac09f37e132d91b962f30e6ec40d2d08b82b0fa",
+     "0xf334412b96fe4a9fc0a93d6297574a3b30217e64",
+     "0xfc23f3d12f775d2b3eb39db3f3ce48da6d2f99a0"
+    ]
+   },
+   "inventoryRaw": {
+    "optimism": "41776140903704678847503",
+    "base": "0"
+   },
+   "boughtRaw": "52259062066738007054993",
+   "burnedRaw": "800000000000000000000000",
+   "events": [
+    {
+     "chain": "optimism",
+     "block": 160051275,
+     "txHash": "0x676be4ff1d01015acb9e77cf24e10555126be08b8e7fdb8391effc50dfa89a3e",
+     "logIndex": 27,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1140151666053004056640",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160054999,
+     "txHash": "0x1ad1502e12a942b297dca0c3c2bd8853e8332a9b70f5d4f1b83ff9bf0862f3e0",
+     "logIndex": 14,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1139870982362863582596",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160058723,
+     "txHash": "0x197e1cd86282cf3bd2bdd13b5dbb3ef4a057c3665c3ec299efc47cc454cdd7d0",
+     "logIndex": 1,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1139209981207196628281",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160062447,
+     "txHash": "0xc2b3f8e5dcc62eb4d6320cb9c2e08051d09b2fe361b7cb16d083966391172a04",
+     "logIndex": 1,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1138123408077061056122",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160066170,
+     "txHash": "0x1078b412292a239ed2df63777ad8dd238f9b7f19d478769549b583fe3c5546d4",
+     "logIndex": 129,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1137112261365331365539",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160069894,
+     "txHash": "0x22041624c5f2474d4e2e6fa8368203505733bc87c74679fe25c9ff8ed2596715",
+     "logIndex": 45,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1146417208229496138746",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160073619,
+     "txHash": "0x43db59f16ed7e658da2cd5dcf7a970d82981d1614769850b28e435281e87b71c",
+     "logIndex": 1,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1137565710224314830592",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160077342,
+     "txHash": "0xa58d09eddf4dceacb665923a36a9f364478a713cd1695d044ad5aec6fb812fee",
+     "logIndex": 34,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1136510147024172138395",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160081066,
+     "txHash": "0xf5daab6e0c45e0a5e6f6b71ab9e68f6919b7a6b2678da181382be3bfe3026887",
+     "logIndex": 28,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1138919747042143522221",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160084790,
+     "txHash": "0x67551344e9ee17bcd33f638c50aa903fba0bd6f910bbc8fcd21fd60b5cd723c9",
+     "logIndex": 26,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1141088342759347588587",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160088514,
+     "txHash": "0xa8ad2a24bfe74bbc27dc942ea234bb94cde6ff6133e5d474f5afb6fe04036280",
+     "logIndex": 76,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1141018498553840197274",
+     "kind": "purchase"
+    },
+    {
+     "chain": "optimism",
+     "block": 160092238,
+     "txHash": "0x99d9f9fe7e610c2efba65ef0367fb16e866b104da9a3d947d211f1fcaed869f1",
+     "logIndex": 109,
+     "from": "0x3f60fca6c50ae3bcd95ae150b4c57f0ba5c3f2ad",
+     "to": "0x679c0174f6c288c4bcd5c95c9ec99d50357c59e7",
+     "amount": "1144280243920480316184",
+     "kind": "purchase"
+    }
+   ]
+  }
  }
 ]
